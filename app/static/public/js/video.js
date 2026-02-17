@@ -1071,10 +1071,22 @@
       const b = await fetchArrayBuffer(mergeTargetVideoUrl);
       await ffmpegWriteFile(ff, 'merge_a.mp4', a);
       await ffmpegWriteFile(ff, 'merge_b.mp4', b);
-      await ffmpegExec(ff, ['-y', '-i', 'merge_a.mp4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merge_a_norm.mp4']);
-      await ffmpegExec(ff, ['-y', '-i', 'merge_b.mp4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merge_b_norm.mp4']);
-      await ffmpegWriteFile(ff, 'merge_list.txt', new TextEncoder().encode("file 'merge_a_norm.mp4'\nfile 'merge_b_norm.mp4'\n"));
-      await ffmpegExec(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'merge_list.txt', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merge_out.mp4']);
+      await ffmpegWriteFile(ff, 'merge_list_fast.txt', new TextEncoder().encode("file 'merge_a.mp4'\nfile 'merge_b.mp4'\n"));
+      let fastMerged = false;
+      try {
+        // 快速路径：同参数时可直接 copy，几乎不耗时。
+        await ffmpegExec(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'merge_list_fast.txt', '-c', 'copy', 'merge_out.mp4']);
+        fastMerged = true;
+      } catch (e) {
+        fastMerged = false;
+      }
+      if (!fastMerged) {
+        // 兼容路径：需重编码时使用 ultrafast 降低耗时。
+        await ffmpegExec(ff, ['-y', '-i', 'merge_a.mp4', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merge_a_norm.mp4']);
+        await ffmpegExec(ff, ['-y', '-i', 'merge_b.mp4', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merge_b_norm.mp4']);
+        await ffmpegWriteFile(ff, 'merge_list.txt', new TextEncoder().encode("file 'merge_a_norm.mp4'\nfile 'merge_b_norm.mp4'\n"));
+        await ffmpegExec(ff, ['-y', '-f', 'concat', '-safe', '0', '-i', 'merge_list.txt', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merge_out.mp4']);
+      }
       const out = await ffmpegReadFile(ff, 'merge_out.mp4');
       const outBlob = new Blob([new Uint8Array(out)], { type: 'video/mp4' });
       const outUrl = URL.createObjectURL(outBlob);
@@ -1485,11 +1497,11 @@
     if (Number(trimSeconds) > 0) {
       await ffmpegExec(
         ff,
-        ['-y', '-i', 'seg_a_source.mp4', '-t', trimSeconds, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'seg_a.mp4']
+        ['-y', '-i', 'seg_a_source.mp4', '-t', trimSeconds, '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'seg_a.mp4']
       );
       await ffmpegExec(
         ff,
-        ['-y', '-i', 'seg_b_source.mp4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'seg_b.mp4']
+        ['-y', '-i', 'seg_b_source.mp4', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'seg_b.mp4']
       );
       await ffmpegWriteFile(
         ff,
@@ -1498,12 +1510,12 @@
       );
       await ffmpegExec(
         ff,
-        ['-y', '-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merged.mp4']
+        ['-y', '-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merged.mp4']
       );
     } else {
       await ffmpegExec(
         ff,
-        ['-y', '-i', 'seg_b_source.mp4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merged.mp4']
+        ['-y', '-i', 'seg_b_source.mp4', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2', 'merged.mp4']
       );
     }
     const merged = await ffmpegReadFile(ff, 'merged.mp4');
