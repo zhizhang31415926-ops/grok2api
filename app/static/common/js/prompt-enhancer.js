@@ -51,22 +51,30 @@
         right: 10px;
         bottom: 10px;
         z-index: 3;
-        font-size: 12px;
-        line-height: 1;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid var(--accents-2);
-        background: color-mix(in srgb, var(--geist-background, #fff) 88%, transparent);
-        color: var(--accents-7);
+        height: 30px;
+        min-width: 92px;
+        padding: 0 10px;
+        border-radius: 8px;
+        background: var(--bg);
+        border-color: var(--border);
+        color: var(--fg);
         cursor: pointer;
         user-select: none;
       }
       .prompt-enhance-btn:hover {
-        border-color: var(--accents-3);
-        background: color-mix(in srgb, var(--geist-background, #fff) 95%, transparent);
+        border-color: #000;
+      }
+      html[data-theme='dark'] .prompt-enhance-btn {
+        background: #111821;
+        border-color: #3b4654;
+        color: var(--fg);
+      }
+      html[data-theme='dark'] .prompt-enhance-btn:hover {
+        border-color: #6b7788;
+        background: #1a2330;
       }
       .prompt-enhance-btn:disabled {
-        opacity: 0.7;
+        opacity: 0.5;
         cursor: not-allowed;
       }
     `;
@@ -192,7 +200,7 @@
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'prompt-enhance-btn';
+    button.className = 'geist-button-outline prompt-enhance-btn';
     button.textContent = '增强提示词';
     button.addEventListener('click', () => onEnhanceClick(textarea, button));
     wrapper.appendChild(button);
