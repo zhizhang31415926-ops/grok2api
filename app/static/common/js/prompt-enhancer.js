@@ -175,6 +175,18 @@
     toggleBtn.classList.toggle('is-visible', Boolean(visible));
   }
 
+  function setEnhanceButtonMode(enhanceBtn, mode) {
+    enhanceBtn.dataset.mode = mode;
+    enhanceBtn.textContent = mode === 'clear' ? '清空' : '增强提示词';
+  }
+
+  function resetEnhancerState(textarea, enhanceBtn, toggleBtn) {
+    enhanceStateMap.delete(textarea);
+    setToggleButtonVisible(toggleBtn, false);
+    updateToggleButtonText(toggleBtn, 'zh');
+    setEnhanceButtonMode(enhanceBtn, 'enhance');
+  }
+
   function buildDesktopText(state, mode) {
     const middleLabel = mode === 'en' ? '最终提示词：' : '中文参考版：';
     const middleText = mode === 'en' ? state.en : state.zh;
@@ -207,6 +219,14 @@
   }
 
   async function onEnhanceClick(textarea, enhanceBtn, toggleBtn) {
+    const currentMode = String(enhanceBtn.dataset.mode || 'enhance');
+    if (currentMode === 'clear') {
+      applyPromptToTextarea(textarea, '');
+      resetEnhancerState(textarea, enhanceBtn, toggleBtn);
+      toast('已清空提示词', 'success');
+      return;
+    }
+
     const raw = String(textarea.value || '').trim();
     if (!raw) {
       toast('请先输入提示词', 'warning');
@@ -238,6 +258,7 @@
         setToggleButtonVisible(toggleBtn, false);
         applyPromptToTextarea(textarea, parsed.raw);
       }
+      setEnhanceButtonMode(enhanceBtn, 'clear');
       toast('提示词增强完成', 'success');
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
@@ -282,7 +303,7 @@
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'geist-button-outline prompt-enhance-btn';
-    button.textContent = '增强提示词';
+    setEnhanceButtonMode(button, 'enhance');
     button.addEventListener('click', () => onEnhanceClick(textarea, button, langBtn));
     wrapper.appendChild(button);
 
