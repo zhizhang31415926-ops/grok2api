@@ -818,6 +818,14 @@ html[data-theme='dark'] .cache-video-thumb-wrap {
   border-color: #2b3440;
 }
 
+html[data-theme='dark'] .cache-video-item.is-active {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+html[data-theme='dark'] .cache-video-item.is-active .cache-video-thumb-wrap {
+  border-color: #93c5fd;
+}
+
 .cache-video-item {
   display: flex;
   align-items: center;
@@ -829,6 +837,14 @@ html[data-theme='dark'] .cache-video-thumb-wrap {
 
 .cache-video-item:last-child {
   border-bottom: none;
+}
+
+.cache-video-item.is-active {
+  background: rgba(17, 24, 39, 0.06);
+}
+
+.cache-video-item.is-active .cache-video-thumb-wrap {
+  border-color: #111;
 }
 
 .cache-video-meta {

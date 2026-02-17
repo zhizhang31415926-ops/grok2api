@@ -1260,6 +1260,12 @@
     return `${y}-${m}-${day} ${hh}:${mm}`;
   }
 
+  function normalizeVideoUrlForCompare(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    return raw.replace(/\/+$/, '');
+  }
+
   async function loadCachedVideos() {
     const authHeader = await ensurePublicKey();
     if (authHeader === null) {
@@ -1311,6 +1317,22 @@
         }
       }, { once: true });
     });
+    const activeUrlRaw = cacheModalPickMode === 'merge_target'
+      ? mergeTargetVideoUrl
+      : selectedVideoUrl;
+    const activeUrl = normalizeVideoUrlForCompare(activeUrlRaw);
+    if (!activeUrl) return;
+    const rows = cacheVideoList.querySelectorAll('.cache-video-item');
+    let activeRow = null;
+    rows.forEach((row) => {
+      const rowUrl = normalizeVideoUrlForCompare(row.getAttribute('data-url') || '');
+      const isActive = rowUrl && rowUrl === activeUrl;
+      row.classList.toggle('is-active', isActive);
+      if (isActive) activeRow = row;
+    });
+    if (activeRow && typeof activeRow.scrollIntoView === 'function') {
+      activeRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
   }
 
   function useCachedVideo(url, name) {
