@@ -719,6 +719,56 @@
   display: none;
 }
 
+html[data-theme='dark'] .waterfall-item {
+  background: #111821;
+  border: 1px solid #2b3440 !important;
+}
+
+html[data-theme='dark'] .waterfall-item:hover {
+  border-color: #3c4756 !important;
+}
+
+html[data-theme='dark'] .waterfall-meta {
+  background: #111821;
+  color: #9aa8bc;
+  border-top: 1px solid #2b3440;
+}
+
+html[data-theme='dark'] .waterfall-meta span {
+  color: #c9d6e5;
+}
+
+html[data-theme='dark'] .copy-parent-id-btn {
+  background: #1a2330;
+  color: #d9e2ec;
+  border-color: #3b4654;
+}
+
+html[data-theme='dark'] .copy-parent-id-btn:hover {
+  background: #243244;
+  border-color: #5d6a7b;
+  color: #f2f6fa;
+}
+
+html[data-theme='dark'] .waterfall-item .image-checkbox {
+  background: rgba(17, 24, 33, 0.92);
+  border-color: #4b5767;
+}
+
+html[data-theme='dark'] .waterfall-item .image-checkbox:hover {
+  background: rgba(26, 35, 48, 0.98);
+  border-color: #94a3b8;
+}
+
+html[data-theme='dark'] .waterfall-item.selected .image-checkbox {
+  background: #e6edf3;
+  border-color: #e6edf3;
+}
+
+html[data-theme='dark'] .waterfall-item.selected .image-checkbox::after {
+  border-color: #0f172a;
+}
+
 
 @keyframes riseIn {
   from {
