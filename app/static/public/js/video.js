@@ -64,6 +64,7 @@
   const referencePreviewMeta = document.getElementById('referencePreviewMeta');
   const refDropZone = document.getElementById('refDropZone');
   const historyCount = document.getElementById('historyCount');
+  const editPreviewWrap = editVideo ? editVideo.closest('.edit-preview-wrap') : null;
 
   let taskStates = new Map();
   let activeTaskIds = [];
@@ -96,6 +97,9 @@
   let mergeCutMsB = 0;
   let workVideoObjectUrl = '';
   let editTimelineTaskLocked = false;
+  let workspacePreviewSizeLocked = false;
+  let workspaceLockedWidth = 0;
+  let workspaceLockedHeight = 0;
 
   function buildHistoryTitle(type, serial) {
     const n = Math.max(1, parseInt(String(serial || '1'), 10) || 1);
@@ -131,6 +135,37 @@
     videoEl.style.objectFit = 'contain';
     videoEl.style.maxWidth = '100%';
     videoEl.style.maxHeight = '100%';
+  }
+
+  function shouldLockWorkspacePreviewSize() {
+    return window.matchMedia('(max-width: 1024px)').matches;
+  }
+
+  function lockWorkspacePreviewSize(force = false) {
+    if (!editPreviewWrap || !editVideo) return;
+    if (!shouldLockWorkspacePreviewSize()) {
+      editPreviewWrap.style.removeProperty('width');
+      editPreviewWrap.style.removeProperty('height');
+      editPreviewWrap.style.removeProperty('min-height');
+      editPreviewWrap.style.removeProperty('max-height');
+      workspacePreviewSizeLocked = false;
+      return;
+    }
+    if (workspacePreviewSizeLocked && !force) return;
+    const rect = editPreviewWrap.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width || 0));
+    const height = Math.max(1, Math.round(rect.height || 0));
+    if (width < 20 || height < 20) return;
+    workspaceLockedWidth = width;
+    workspaceLockedHeight = height;
+    editPreviewWrap.style.width = `${width}px`;
+    editPreviewWrap.style.height = `${height}px`;
+    editPreviewWrap.style.minHeight = `${height}px`;
+    editPreviewWrap.style.maxHeight = `${height}px`;
+    editVideo.style.width = '100%';
+    editVideo.style.height = '100%';
+    editVideo.style.maxHeight = '100%';
+    workspacePreviewSizeLocked = true;
   }
 
   function shortHash(value) {
@@ -1250,6 +1285,7 @@
     enforceInlinePlayback(editVideo);
     editVideo.src = safeUrl;
     editVideo.load();
+    lockWorkspacePreviewSize();
     lockedFrameIndex = -1;
     lockedTimestampMs = 0;
     lastFrameHash = '';
@@ -1307,6 +1343,11 @@
   function closeEditPanel() {
     if (editHint) editHint.classList.remove('hidden');
     if (editBody) editBody.classList.remove('hidden');
+  }
+
+  function scheduleWorkspacePreviewLock(force = false) {
+    setTimeout(() => lockWorkspacePreviewSize(force), 0);
+    requestAnimationFrame(() => lockWorkspacePreviewSize(force));
   }
 
   function positionCacheVideoModal() {
@@ -2556,6 +2597,7 @@
   if (editVideo) {
     enforceInlinePlayback(editVideo);
     editVideo.addEventListener('loadedmetadata', () => {
+      lockWorkspacePreviewSize();
       const duration = Number(editVideo.duration || 0);
       if (editDurationText) {
         editDurationText.textContent = duration > 0
@@ -2577,6 +2619,18 @@
       lockFrameByCurrentTime();
     });
   }
+
+  window.addEventListener('load', () => {
+    scheduleWorkspacePreviewLock(true);
+  });
+  window.addEventListener('resize', () => {
+    workspacePreviewSizeLocked = false;
+    scheduleWorkspacePreviewLock(true);
+  });
+  window.addEventListener('orientationchange', () => {
+    workspacePreviewSizeLocked = false;
+    setTimeout(() => scheduleWorkspacePreviewLock(true), 160);
+  });
 
   if (mergeVideoPreviewA) {
     enforceInlinePlayback(mergeVideoPreviewA);
