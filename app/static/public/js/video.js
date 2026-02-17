@@ -1462,7 +1462,7 @@
     isRunning = true;
     startBtn.disabled = true;
     updateMeta();
-    resetOutput();
+    resetOutput(true);
     setStatus('connecting', '连接中');
 
     let taskIds = [];
@@ -1483,7 +1483,7 @@
     }
 
     taskStates = new Map();
-    previewCount = 0;
+    previewCount = videoStage ? videoStage.querySelectorAll('.video-item').length : 0;
     for (const taskId of taskIds) {
       const previewItem = initPreviewSlot();
       setPreviewTitle(previewItem, buildHistoryTitle('generated', previewItem && previewItem.dataset ? previewItem.dataset.index : previewCount));
