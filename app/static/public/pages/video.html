@@ -154,6 +154,7 @@
                 <video id="editVideo" controls preload="metadata"></video>
               </div>
               <div class="edit-slider-wrap">
+                <div class="slider-direction-mark">从这里开始拼接，右侧将由新视频接续</div>
                 <input id="editTimeline" type="range" min="0" max="100000" step="1" value="0">
                 <div class="progress-meta">
                   <span id="editTimeText">00:00.000</span>
@@ -192,11 +193,12 @@
                 </div>
                 <div class="manual-merge-grid">
                   <div class="manual-merge-col">
-                    <div class="meta-label">视频1拼接帧（取左侧）</div>
+                    <div class="meta-label">视频1拼接帧（向左保留）</div>
                     <div class="edit-preview-wrap">
                       <video id="mergeVideoPreviewA" controls preload="metadata"></video>
                     </div>
                     <div class="edit-slider-wrap">
+                      <div class="slider-direction-mark">方向：保留左侧（起点 -> 当前帧）</div>
                       <input id="mergeTimelineA" type="range" min="0" max="100000" step="1" value="0">
                       <div class="progress-meta">
                         <span id="mergeTimeTextA">00:00.000</span>
@@ -205,11 +207,12 @@
                     </div>
                   </div>
                   <div class="manual-merge-col">
-                    <div class="meta-label">视频2拼接帧（取右侧）</div>
+                    <div class="meta-label">视频2拼接帧（向右保留）</div>
                     <div class="edit-preview-wrap">
                       <video id="mergeVideoPreviewB" controls preload="metadata"></video>
                     </div>
                     <div class="edit-slider-wrap">
+                      <div class="slider-direction-mark">方向：保留右侧（当前帧 -> 结尾）</div>
                       <input id="mergeTimelineB" type="range" min="0" max="100000" step="1" value="0">
                       <div class="progress-meta">
                         <span id="mergeTimeTextB">00:00.000</span>

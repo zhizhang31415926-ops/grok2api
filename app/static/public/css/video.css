@@ -675,6 +675,13 @@ body {
   margin-bottom: 12px;
 }
 
+.slider-direction-mark {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--accents-6);
+  line-height: 1.4;
+}
+
 #editTimeline {
   width: 100%;
 }
