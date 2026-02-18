@@ -128,7 +128,7 @@
     updateModeValue();
   }
 
-  function updateModeValue() {}
+  function updateModeValue() { }
 
   async function loadFilterDefaults() {
     try {
@@ -163,7 +163,7 @@
     }
   }
 
-  function updateError(value) {}
+  function updateError(value) { }
 
   function setLightboxImageFullscreen(enabled) {
     if (!lightbox) return;
@@ -182,7 +182,7 @@
       setLightboxKeyboardShift(0);
       return;
     }
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const isMobile = window.matchMedia('(max-width: 1024px)').matches || window.matchMedia('(pointer: coarse)').matches;
     if (!isMobile || document.activeElement !== lightboxEditInput) {
       setLightboxKeyboardShift(0);
       return;
@@ -634,14 +634,14 @@
       if (!directoryHandle) {
         return false;
       }
-      
+
       const mime = inferMime(base64);
       const ext = mime === 'image/png' ? 'png' : 'jpg';
       const finalFilename = filename.endsWith(`.${ext}`) ? filename : `${filename}.${ext}`;
-      
+
       const fileHandle = await directoryHandle.getFileHandle(finalFilename, { create: true });
       const writable = await fileHandle.createWritable();
-      
+
       // Convert base64 to blob
       const byteString = atob(base64);
       const ab = new ArrayBuffer(byteString.length);
@@ -650,7 +650,7 @@
         ia[i] = byteString.charCodeAt(i);
       }
       const blob = new Blob([ab], { type: mime });
-      
+
       await writable.write(blob);
       await writable.close();
       return true;
@@ -980,7 +980,7 @@
     if (isSelectionMode) {
       item.classList.add('selection-mode');
     }
-    
+
     if (reverseInsertToggle && reverseInsertToggle.checked) {
       waterfall.prepend(item);
     } else {
@@ -1000,7 +1000,7 @@
       const seq = meta && meta.sequence ? meta.sequence : 'unknown';
       const ext = mime === 'image/png' ? 'png' : 'jpg';
       const filename = `imagine_${timestamp}_${seq}.${ext}`;
-      
+
       if (useFileSystemAPI && directoryHandle) {
         saveToFileSystem(base64, filename).catch(() => {
           downloadImage(base64, filename);
@@ -1339,7 +1339,7 @@
     const concurrent = concurrentSelect ? parseInt(concurrentSelect.value, 10) : 1;
     const ratio = ratioSelect ? ratioSelect.value : '2:3';
     const nsfwEnabled = nsfwSelect ? nsfwSelect.value === 'true' : true;
-    
+
     if (isRunning) {
       toast('已在运行中', 'warning');
       return;
@@ -1617,7 +1617,7 @@
       e.stopPropagation();
       const cards = document.querySelectorAll('.imagine-card-collapsible');
       const allCollapsed = Array.from(cards).every(card => card.classList.contains('collapsed'));
-      
+
       cards.forEach(card => {
         if (allCollapsed) {
           card.classList.remove('collapsed');
@@ -1633,31 +1633,31 @@
   const selectionToolbar = document.getElementById('selectionToolbar');
   const toggleSelectAllBtn = document.getElementById('toggleSelectAllBtn');
   const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
-  
+
   function enterSelectionMode() {
     isSelectionMode = true;
     selectedImages.clear();
     selectionToolbar.classList.remove('hidden');
-    
+
     const items = document.querySelectorAll('.waterfall-item');
     items.forEach(item => {
       item.classList.add('selection-mode');
     });
-    
+
     updateSelectedCount();
   }
-  
+
   function exitSelectionMode() {
     isSelectionMode = false;
     selectedImages.clear();
     selectionToolbar.classList.add('hidden');
-    
+
     const items = document.querySelectorAll('.waterfall-item');
     items.forEach(item => {
       item.classList.remove('selection-mode', 'selected');
     });
   }
-  
+
   function toggleSelectionMode() {
     if (isSelectionMode) {
       exitSelectionMode();
@@ -1665,10 +1665,10 @@
       enterSelectionMode();
     }
   }
-  
+
   function toggleImageSelection(item) {
     if (!isSelectionMode) return;
-    
+
     if (item.classList.contains('selected')) {
       item.classList.remove('selected');
       selectedImages.delete(item);
@@ -1676,10 +1676,10 @@
       item.classList.add('selected');
       selectedImages.add(item);
     }
-    
+
     updateSelectedCount();
   }
-  
+
   function updateSelectedCount() {
     const countSpan = document.getElementById('selectedCount');
     if (countSpan) {
@@ -1688,7 +1688,7 @@
     if (downloadSelectedBtn) {
       downloadSelectedBtn.disabled = selectedImages.size === 0;
     }
-    
+
     // Update toggle select all button text
     if (toggleSelectAllBtn) {
       const items = document.querySelectorAll('.waterfall-item');
@@ -1696,11 +1696,11 @@
       toggleSelectAllBtn.textContent = allSelected ? '取消全选' : '全选';
     }
   }
-  
+
   function toggleSelectAll() {
     const items = document.querySelectorAll('.waterfall-item');
     const allSelected = items.length > 0 && selectedImages.size === items.length;
-    
+
     if (allSelected) {
       // Deselect all
       items.forEach(item => {
@@ -1714,34 +1714,34 @@
         selectedImages.add(item);
       });
     }
-    
+
     updateSelectedCount();
   }
-  
+
   async function downloadSelectedImages() {
     if (selectedImages.size === 0) {
       toast('请先选择要下载的图片', 'warning');
       return;
     }
-    
+
     if (typeof JSZip === 'undefined') {
       toast('JSZip 库加载失败，请刷新页面重试', 'error');
       return;
     }
-    
+
     toast(`正在打包 ${selectedImages.size} 张图片...`, 'info');
     downloadSelectedBtn.disabled = true;
     downloadSelectedBtn.textContent = '打包中...';
-    
+
     const zip = new JSZip();
     const imgFolder = zip.folder('images');
     let processed = 0;
-    
+
     try {
       for (const item of selectedImages) {
         const url = item.dataset.imageUrl;
         const prompt = item.dataset.prompt || 'image';
-        
+
         try {
           let blob = null;
           if (url && url.startsWith('data:')) {
@@ -1756,54 +1756,54 @@
           const filename = `${prompt.substring(0, 30).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_${processed + 1}.png`;
           imgFolder.file(filename, blob);
           processed++;
-          
+
           // Update progress
           downloadSelectedBtn.innerHTML = `打包中... (${processed}/${selectedImages.size})`;
         } catch (error) {
           console.error('Failed to fetch image:', error);
         }
       }
-      
+
       if (processed === 0) {
         toast('没有成功获取任何图片', 'error');
         return;
       }
-      
+
       // Generate zip file
       downloadSelectedBtn.textContent = '生成压缩包...';
       const content = await zip.generateAsync({ type: 'blob' });
-      
+
       // Download zip
       const link = document.createElement('a');
       link.href = URL.createObjectURL(content);
       link.download = `imagine_${new Date().toISOString().slice(0, 10)}_${Date.now()}.zip`;
       link.click();
       URL.revokeObjectURL(link.href);
-      
+
       toast(`成功打包 ${processed} 张图片`, 'success');
       exitSelectionMode();
     } catch (error) {
       console.error('Download failed:', error);
       toast('打包失败，请重试', 'error');
     } finally {
-    downloadSelectedBtn.disabled = false;
-    downloadSelectedBtn.innerHTML = `下载 <span id="selectedCount" class="selected-count">${selectedImages.size}</span>`;
+      downloadSelectedBtn.disabled = false;
+      downloadSelectedBtn.innerHTML = `下载 <span id="selectedCount" class="selected-count">${selectedImages.size}</span>`;
     }
   }
-  
+
   if (batchDownloadBtn) {
     batchDownloadBtn.addEventListener('click', toggleSelectionMode);
   }
-  
+
   if (toggleSelectAllBtn) {
     toggleSelectAllBtn.addEventListener('click', toggleSelectAll);
   }
-  
+
   if (downloadSelectedBtn) {
     downloadSelectedBtn.addEventListener('click', downloadSelectedImages);
   }
-  
-  
+
+
   // Handle image/checkbox clicks in waterfall
   if (waterfall) {
     waterfall.addEventListener('click', (e) => {
@@ -1815,7 +1815,7 @@
         copyParentPostIdFromItem(item);
         return;
       }
-      
+
       if (isSelectionMode) {
         // In selection mode, clicking anywhere on the item toggles selection
         toggleImageSelection(item);
@@ -1825,7 +1825,7 @@
           const img = e.target.closest('.waterfall-item img');
           const images = getAllImages();
           const index = images.indexOf(img);
-          
+
           if (index !== -1) {
             updateLightbox(index);
             pauseWsForEdit();
@@ -1841,7 +1841,7 @@
   const lightboxPrev = document.getElementById('lightboxPrev');
   const lightboxNext = document.getElementById('lightboxNext');
   let currentImageIndex = -1;
-  
+
   function getAllImages() {
     return Array.from(document.querySelectorAll('.waterfall-item img'));
   }
@@ -1851,11 +1851,11 @@
     if (index < 0 || index >= images.length) return null;
     return images[index].closest('.waterfall-item');
   }
-  
+
   function updateLightbox(index) {
     const images = getAllImages();
     if (index < 0 || index >= images.length) return;
-    
+
     currentImageIndex = index;
     setLightboxImageFullscreen(false);
     lightboxImg.src = images[index].src;
@@ -1875,18 +1875,18 @@
         }
       }
     }
-    
+
     // Update navigation buttons state
     if (lightboxPrev) lightboxPrev.disabled = (index === 0);
     if (lightboxNext) lightboxNext.disabled = (index === images.length - 1);
   }
-  
+
   function showPrevImage() {
     if (currentImageIndex > 0) {
       updateLightbox(currentImageIndex - 1);
     }
   }
-  
+
   function showNextImage() {
     const images = getAllImages();
     if (currentImageIndex < images.length - 1) {
@@ -2047,7 +2047,7 @@
       }
     }
   }
-  
+
   if (lightbox && closeLightbox) {
     closeLightbox.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2107,10 +2107,10 @@
       });
     }
 
-      if (lightboxEditInput) {
-        lightboxEditInput.addEventListener('click', (e) => {
-          e.stopPropagation();
-        });
+    if (lightboxEditInput) {
+      lightboxEditInput.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
       lightboxEditInput.addEventListener('focus', () => {
         setTimeout(updateLightboxKeyboardShift, 80);
       });
@@ -2130,7 +2130,7 @@
         e.stopPropagation();
       });
     }
-    
+
     // Navigation buttons
     if (lightboxPrev) {
       lightboxPrev.addEventListener('click', (e) => {
@@ -2138,7 +2138,7 @@
         showPrevImage();
       });
     }
-    
+
     if (lightboxNext) {
       lightboxNext.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2149,7 +2149,7 @@
     // Keyboard navigation
     document.addEventListener('keydown', (e) => {
       if (!lightbox.classList.contains('active')) return;
-      
+
       if (e.key === 'Escape') {
         if (lightboxImageFullscreen) {
           setLightboxImageFullscreen(false);
@@ -2194,43 +2194,43 @@
   if (floatingActions) {
     let isDragging = false;
     let startX, startY, initialLeft, initialTop;
-    
+
     floatingActions.style.touchAction = 'none';
-    
+
     floatingActions.addEventListener('pointerdown', (e) => {
       if (e.target.tagName.toLowerCase() === 'button' || e.target.closest('button')) return;
-      
+
       e.preventDefault();
       isDragging = true;
       floatingActions.setPointerCapture(e.pointerId);
       startX = e.clientX;
       startY = e.clientY;
-      
+
       const rect = floatingActions.getBoundingClientRect();
-      
+
       if (!floatingActions.style.left || floatingActions.style.left === '') {
         floatingActions.style.left = rect.left + 'px';
         floatingActions.style.top = rect.top + 'px';
         floatingActions.style.transform = 'none';
         floatingActions.style.bottom = 'auto';
       }
-      
+
       initialLeft = parseFloat(floatingActions.style.left);
       initialTop = parseFloat(floatingActions.style.top);
-      
+
       floatingActions.classList.add('shadow-xl');
     });
-    
+
     document.addEventListener('pointermove', (e) => {
       if (!isDragging) return;
-      
+
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      
+
       floatingActions.style.left = `${initialLeft + dx}px`;
       floatingActions.style.top = `${initialTop + dy}px`;
     });
-    
+
     document.addEventListener('pointerup', (e) => {
       if (isDragging) {
         isDragging = false;
