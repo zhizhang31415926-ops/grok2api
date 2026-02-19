@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import contextlib
 import re
 import time
@@ -135,18 +137,53 @@ def _extract_parent_post_id_from_payload(payload: Dict[str, Any]) -> str:
     return ""
 
 
+def _detect_image_mime_from_b64(compact_b64: str) -> str:
+    """根据 base64 内容头判断真实图片 MIME。"""
+    try:
+        raw = base64.b64decode(compact_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="image_base64 format is invalid")
+
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"RIFF") and len(raw) >= 12 and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    # 无法识别时维持 png 兼容行为
+    return "image/png"
+
+
 def _normalize_image_input(image_base64: str, image_url: str) -> str:
     raw_b64 = str(image_base64 or "").strip()
     raw_url = str(image_url or "").strip()
     if raw_b64:
+        declared_mime = ""
+        compact = raw_b64
         if raw_b64.startswith("data:"):
-            return raw_b64
-        compact = re.sub(r"\s+", "", raw_b64)
+            try:
+                header, payload = raw_b64.split(",", 1)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="image_base64 format is invalid")
+            compact = payload
+            mime_part = header[5:].split(";", 1)[0].strip().lower()
+            declared_mime = mime_part
+
+        compact = re.sub(r"\s+", "", compact)
         if not compact:
             raise HTTPException(status_code=400, detail="image_base64 is empty")
         if not re.fullmatch(r"[A-Za-z0-9+/=_-]+", compact):
             raise HTTPException(status_code=400, detail="image_base64 format is invalid")
-        return f"data:image/png;base64,{compact}"
+
+        real_mime = _detect_image_mime_from_b64(compact)
+        if declared_mime and declared_mime != real_mime:
+            logger.warning(
+                "Imagine workbench image MIME mismatch corrected: "
+                f"declared={declared_mime}, detected={real_mime}"
+            )
+        return f"data:{real_mime};base64,{compact}"
     if raw_url:
         if raw_url.startswith("http://") or raw_url.startswith("https://"):
             return raw_url
