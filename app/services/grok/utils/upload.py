@@ -45,7 +45,7 @@ class UploadService:
 
     @staticmethod
     def _normalize_image_to_jpeg(filename: str, b64: str, mime: str) -> Tuple[str, str, str]:
-        """所有图片统一重编码为 JPEG，消除编码差异带来的上游拒绝。"""
+        """所有图片统一净化并重编码为 JPEG，消除源图指纹差异。"""
         safe_mime = str(mime or "").lower().strip()
         if not safe_mime.startswith("image/"):
             return filename, b64, mime
@@ -72,15 +72,27 @@ class UploadService:
                 else:
                     out_img = img.convert("RGB")
 
+                # 先做一次无元数据净化，避免源图中异常 profile/块影响上游解析
+                sanitized = Image.new("RGB", out_img.size)
+                sanitized.paste(out_img)
+
                 out = io.BytesIO()
-                out_img.save(out, format="JPEG", quality=92, optimize=True)
+                # 使用更保守的 baseline JPEG 参数，减少兼容性问题
+                sanitized.save(
+                    out,
+                    format="JPEG",
+                    quality=92,
+                    optimize=False,
+                    progressive=False,
+                    subsampling=2,
+                )
                 jpeg_b64 = base64.b64encode(out.getvalue()).decode()
                 base_name = (filename or "file").rsplit(".", 1)[0]
                 jpeg_name = f"{base_name}.jpg"
                 logger.info(
                     "Upload image normalized to JPEG: "
                     f"from={safe_mime}, src_name={filename}, dst_name={jpeg_name}, "
-                    f"size={width}x{height}, out_len={len(jpeg_b64)}"
+                    f"size={width}x{height}, out_len={len(jpeg_b64)}, profile=baseline-jpeg"
                 )
                 return jpeg_name, jpeg_b64, "image/jpeg"
         except Exception as e:
