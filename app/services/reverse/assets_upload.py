@@ -65,14 +65,28 @@ class AssetsUploadReverse:
             browser = get_config("proxy.browser")
 
             async def _do_request():
-                response = await session.post(
-                    UPLOAD_API,
-                    headers=headers,
-                    json=payload,
-                    proxies=proxies,
-                    timeout=timeout,
-                    impersonate=browser,
-                )
+                try:
+                    response = await session.post(
+                        UPLOAD_API,
+                        headers=headers,
+                        json=payload,
+                        proxies=proxies,
+                        timeout=timeout,
+                        impersonate=browser,
+                    )
+                except Exception as post_err:
+                    err_msg = str(post_err)
+                    # 这两类异常在实际环境里多为瞬时网络/上游抖动，按可重试处理。
+                    if "curl: (35)" in err_msg or '"code"' in err_msg:
+                        logger.warning(
+                            "AssetsUpload transient exception, mark as retryable: "
+                            f"{err_msg}"
+                        )
+                        raise UpstreamException(
+                            message=f"AssetsUpload transient failure: {err_msg}",
+                            details={"status": 403, "error": err_msg},
+                        )
+                    raise
                 if response.status_code != 200:
                     body_preview = ""
                     try:
