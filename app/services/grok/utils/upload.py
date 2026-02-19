@@ -118,6 +118,26 @@ class UploadService:
             raise ValidationException(f"Image conversion to JPEG failed: {e}")
 
     @staticmethod
+    def _inspect_image_payload(b64: str) -> Tuple[int, int, int]:
+        """解析图片负载，返回 (宽, 高, 字节大小)。"""
+        try:
+            from PIL import Image
+        except Exception as e:
+            raise ValidationException(f"Pillow is required for image inspection: {e}")
+
+        try:
+            raw = base64.b64decode(re.sub(r"\s+", "", b64), validate=True)
+        except Exception:
+            raise ValidationException("Invalid image base64 content")
+
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                width, height = img.size
+            return width, height, len(raw)
+        except Exception as e:
+            raise ValidationException(f"Image inspect failed: {e}")
+
+    @staticmethod
     def _is_url(value: str) -> bool:
         """Check if the value is a URL."""
         try:
@@ -298,6 +318,13 @@ class UploadService:
 
             if not b64:
                 raise ValidationException("Invalid file input: empty content")
+            if str(mime).lower().startswith("image/"):
+                width, height, raw_size = self._inspect_image_payload(b64)
+                logger.info(
+                    "Upload image stats before request: "
+                    f"filename={filename}, mime={mime}, resolution={width}x{height}, "
+                    f"pixels={width * height}, bytes={raw_size}, b64_len={len(b64)}"
+                )
 
             session = await self.create()
             try:
