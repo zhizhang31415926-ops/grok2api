@@ -45,12 +45,10 @@ class UploadService:
 
     @staticmethod
     def _normalize_image_to_jpeg(filename: str, b64: str, mime: str) -> Tuple[str, str, str]:
-        """非 JPEG 图片统一转为 JPEG。"""
+        """所有图片统一重编码为 JPEG，消除编码差异带来的上游拒绝。"""
         safe_mime = str(mime or "").lower().strip()
         if not safe_mime.startswith("image/"):
             return filename, b64, mime
-        if safe_mime in ("image/jpeg", "image/jpg"):
-            return filename, b64, "image/jpeg"
 
         try:
             from PIL import Image, ImageOps
@@ -80,7 +78,7 @@ class UploadService:
                 jpeg_name = f"{base_name}.jpeg"
                 logger.info(
                     "Upload image normalized to JPEG: "
-                    f"from={safe_mime}, src_name={filename}, dst_name={jpeg_name}"
+                    f"from={safe_mime}, src_name={filename}, dst_name={jpeg_name}, out_len={len(jpeg_b64)}"
                 )
                 return jpeg_name, jpeg_b64, "image/jpeg"
         except Exception as e:
