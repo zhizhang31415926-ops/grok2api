@@ -40,6 +40,25 @@ class ImageEditResult:
     data: Union[AsyncGenerator[str, None], List[str]]
 
 
+def _is_upload_rejected_error(exc: Exception) -> bool:
+    """判断是否为上游审核导致的上传拒绝。"""
+    msg = str(exc or "").lower()
+    if "content moderated" in msg or "content-moderated" in msg:
+        return True
+    if '"code":3' in msg or "'code': 3" in msg:
+        return True
+
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        body = str(details.get("body") or "").lower()
+        if "content moderated" in body or "content-moderated" in body:
+            return True
+        if '"code":3' in body or "'code': 3" in body:
+            return True
+
+    return False
+
+
 class ImageEditService:
     """Image edit orchestration service."""
 
@@ -438,6 +457,20 @@ class ImageEditService:
                         image_urls.append(
                             f"https://assets.grok.com/{file_uri.lstrip('/')}"
                         )
+        except Exception as e:
+            if _is_upload_rejected_error(e):
+                raise AppException(
+                    message="图片上传被拒绝，请更换图片后重试",
+                    error_type=ErrorType.INVALID_REQUEST.value,
+                    code="upload_rejected",
+                    status_code=400,
+                )
+            raise AppException(
+                message="图片上传失败，请稍后重试",
+                error_type=ErrorType.SERVER.value,
+                code="upload_failed",
+                status_code=502,
+            )
         finally:
             await upload_service.close()
 

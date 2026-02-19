@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.core.auth import verify_public_key, get_public_api_key, is_public_enabled
 from app.core.config import get_config
+from app.core.exceptions import AppException
 from app.core.logger import logger
 from app.api.v1.image import resolve_aspect_ratio
 from app.services.grok.services.image import ImageGenerationService
@@ -913,11 +914,14 @@ async def public_imagine_edit(data: ImagineEditRequest, request: Request):
                     )
                     raise
                 except Exception as e:
+                    message = str(e)
+                    if not message:
+                        message = "编辑失败，请稍后重试"
                     await queue.put(
                         {
                             "type": "error",
                             "payload": {
-                                "message": str(e),
+                                "message": message,
                             },
                         }
                     )
@@ -964,7 +968,12 @@ async def public_imagine_edit(data: ImagineEditRequest, request: Request):
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    return await _run_once(progress_cb=None)
+    try:
+        return await _run_once(progress_cb=None)
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception:
+        raise HTTPException(status_code=500, detail="编辑失败，请稍后重试")
 
 
 class ImagineStopRequest(BaseModel):
@@ -1155,11 +1164,14 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
                     )
                     raise
                 except Exception as e:
+                    message = str(e)
+                    if not message:
+                        message = "编辑失败，请稍后重试"
                     await queue.put(
                         {
                             "type": "error",
                             "payload": {
-                                "message": str(e),
+                                "message": message,
                             },
                         }
                     )
@@ -1207,4 +1219,9 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    return await _run_once(progress_cb=None)
+    try:
+        return await _run_once(progress_cb=None)
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception:
+        raise HTTPException(status_code=500, detail="编辑失败，请稍后重试")
