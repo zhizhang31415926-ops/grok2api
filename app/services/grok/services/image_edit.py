@@ -50,10 +50,15 @@ def _is_upload_rejected_error(exc: Exception) -> bool:
 
     details = getattr(exc, "details", None)
     if isinstance(details, dict):
+        status = details.get("status")
         body = str(details.get("body") or "").lower()
+        err = str(details.get("error") or "").lower()
         if "content moderated" in body or "content-moderated" in body:
             return True
         if '"code":3' in body or "'code': 3" in body:
+            return True
+        # 某些链路只返回 400 + '"code"' 关键词，按拒绝处理。
+        if status == 400 and ('"code"' in err or "moderated" in err):
             return True
 
     return False

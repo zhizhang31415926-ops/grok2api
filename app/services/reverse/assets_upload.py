@@ -4,6 +4,7 @@ Reverse interface: upload asset.
 
 import asyncio
 import json
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -45,21 +46,44 @@ class AssetsUploadReverse:
         req = urllib.request.Request(url=url, data=body, headers=headers, method="POST")
 
         def _do_post():
+            def _read_http_error(err: urllib.error.HTTPError):
+                status = int(getattr(err, "code", 500) or 500)
+                hdrs = {}
+                try:
+                    hdrs = {
+                        str(k).lower(): str(v)
+                        for k, v in dict((err.headers or {}).items()).items()
+                    }
+                except Exception:
+                    hdrs = {}
+                try:
+                    body = err.read().decode("utf-8", errors="replace")
+                except Exception:
+                    body = ""
+                return status, hdrs, body
+
             if opener is not None:
-                with opener.open(req, timeout=timeout) as resp:
+                try:
+                    with opener.open(req, timeout=timeout) as resp:
+                        status = int(getattr(resp, "status", 200) or 200)
+                        raw_headers = {
+                            str(k).lower(): str(v)
+                            for k, v in dict(resp.headers.items()).items()
+                        }
+                        text = resp.read().decode("utf-8", errors="replace")
+                        return status, raw_headers, text
+                except urllib.error.HTTPError as e:
+                    return _read_http_error(e)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
                     status = int(getattr(resp, "status", 200) or 200)
                     raw_headers = {
                         str(k).lower(): str(v) for k, v in dict(resp.headers.items()).items()
                     }
                     text = resp.read().decode("utf-8", errors="replace")
                     return status, raw_headers, text
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                status = int(getattr(resp, "status", 200) or 200)
-                raw_headers = {
-                    str(k).lower(): str(v) for k, v in dict(resp.headers.items()).items()
-                }
-                text = resp.read().decode("utf-8", errors="replace")
-                return status, raw_headers, text
+            except urllib.error.HTTPError as e:
+                return _read_http_error(e)
 
         status, raw_headers, text = await asyncio.to_thread(_do_post)
         return AssetsUploadReverse._SimpleResponse(
@@ -192,6 +216,17 @@ class AssetsUploadReverse:
                                     "AssetsUpload recovered by forced direct fallback after transient error"
                                 )
                                 return response
+                            body_preview = ""
+                            try:
+                                body_preview = (response.text or "").strip().replace("\n", " ")
+                            except Exception:
+                                body_preview = ""
+                            if len(body_preview) > 300:
+                                body_preview = f"{body_preview[:300]}...(len={len(body_preview)})"
+                            raise UpstreamException(
+                                message=f"AssetsUpload forced direct failed: {response.status_code}",
+                                details={"status": response.status_code, "body": body_preview},
+                            )
                         except Exception as forced_direct_err:
                             logger.warning(
                                 "AssetsUpload forced direct fallback failed, "
@@ -211,6 +246,13 @@ class AssetsUploadReverse:
                                     "AssetsUpload recovered by forced urllib fallback after transient error"
                                 )
                                 return response
+                            body_preview = (response.text or "").strip().replace("\n", " ")
+                            if len(body_preview) > 300:
+                                body_preview = f"{body_preview[:300]}...(len={len(body_preview)})"
+                            raise UpstreamException(
+                                message=f"AssetsUpload forced urllib failed: {response.status_code}",
+                                details={"status": response.status_code, "body": body_preview},
+                            )
                         except Exception as forced_urllib_err:
                             logger.warning(
                                 "AssetsUpload forced urllib fallback failed, "
