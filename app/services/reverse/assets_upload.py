@@ -74,9 +74,29 @@ class AssetsUploadReverse:
                         timeout=timeout,
                         impersonate=browser,
                     )
-                except Exception as post_err:
-                    err_msg = str(post_err)
-                    # 这两类异常在实际环境里多为瞬时网络/上游抖动，按可重试处理。
+                    if response.status_code != 200:
+                        body_preview = ""
+                        try:
+                            body_preview = (response.text or "").strip().replace("\n", " ")
+                        except Exception:
+                            body_preview = ""
+                        if len(body_preview) > 300:
+                            body_preview = f"{body_preview[:300]}...(len={len(body_preview)})"
+                        logger.error(
+                            "AssetsUploadReverse: Upload failed, "
+                            f"status={response.status_code}, body={body_preview or '-'}",
+                            extra={"error_type": "UpstreamException"},
+                        )
+                        raise UpstreamException(
+                            message=f"AssetsUploadReverse: Upload failed, {response.status_code}",
+                            details={"status": response.status_code, "body": body_preview},
+                        )
+                    return response
+                except UpstreamException:
+                    raise
+                except Exception as inner_err:
+                    err_msg = str(inner_err)
+                    # 这类异常在实际环境里多为瞬时网络/上游抖动，按可重试处理。
                     if "curl: (35)" in err_msg or '"code"' in err_msg:
                         logger.warning(
                             "AssetsUpload transient exception, mark as retryable: "
@@ -87,24 +107,6 @@ class AssetsUploadReverse:
                             details={"status": 403, "error": err_msg},
                         )
                     raise
-                if response.status_code != 200:
-                    body_preview = ""
-                    try:
-                        body_preview = (response.text or "").strip().replace("\n", " ")
-                    except Exception:
-                        body_preview = ""
-                    if len(body_preview) > 300:
-                        body_preview = f"{body_preview[:300]}...(len={len(body_preview)})"
-                    logger.error(
-                        "AssetsUploadReverse: Upload failed, "
-                        f"status={response.status_code}, body={body_preview or '-'}",
-                        extra={"error_type": "UpstreamException"},
-                    )
-                    raise UpstreamException(
-                        message=f"AssetsUploadReverse: Upload failed, {response.status_code}",
-                        details={"status": response.status_code, "body": body_preview},
-                    )
-                return response
 
             return await retry_on_status(_do_request)
 
