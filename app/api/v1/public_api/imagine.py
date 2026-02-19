@@ -2,8 +2,8 @@ import asyncio
 import base64
 import binascii
 import contextlib
+import io
 import re
-import struct
 import time
 import uuid
 from typing import Optional, List, Dict, Any
@@ -160,37 +160,28 @@ def _detect_image_mime(raw: bytes) -> str:
     return "image/png"
 
 
-def _sanitize_png_bytes(raw: bytes) -> bytes:
-    """移除 PNG 中高风险附加 chunk（如 eXIf/iCCP），降低上游 400 概率。"""
-    signature = b"\x89PNG\r\n\x1a\n"
-    if not raw.startswith(signature):
-        return raw
+def _encode_jpeg_base64(raw: bytes) -> str:
+    """将任意图片字节转为 JPEG base64。"""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(io.BytesIO(raw)) as img:
+            # 统一旋转方向（EXIF）并转 RGB，确保 JPEG 可保存
+            img = ImageOps.exif_transpose(img)
+            if img.mode in ("RGBA", "LA"):
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                alpha = img.split()[-1]
+                bg.paste(img.convert("RGBA"), mask=alpha)
+                out_img = bg
+            elif img.mode == "P":
+                out_img = img.convert("RGB")
+            else:
+                out_img = img.convert("RGB")
 
-    # 保留：关键图像 chunk + 常见透明信息
-    keep_types = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS"}
-    pos = len(signature)
-    out = bytearray(signature)
-
-    while pos + 12 <= len(raw):
-        try:
-            chunk_len = struct.unpack(">I", raw[pos:pos + 4])[0]
-        except struct.error:
-            return raw
-        chunk_type = raw[pos + 4:pos + 8]
-        chunk_total = 12 + chunk_len
-        if pos + chunk_total > len(raw):
-            return raw
-        chunk_blob = raw[pos:pos + chunk_total]
-        if chunk_type in keep_types:
-            out.extend(chunk_blob)
-        pos += chunk_total
-        if chunk_type == b"IEND":
-            break
-
-    # 只有在结构完整并且确实有内容时才替换
-    if len(out) > len(signature) and out.endswith(b"IEND\xaeB`\x82"):
-        return bytes(out)
-    return raw
+            out = io.BytesIO()
+            out_img.save(out, format="JPEG", quality=92, optimize=True)
+            return base64.b64encode(out.getvalue()).decode()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"image decode failed: {e}")
 
 
 def _normalize_image_input(image_base64: str, image_url: str) -> str:
@@ -222,15 +213,16 @@ def _normalize_image_input(image_base64: str, image_url: str) -> str:
                 f"declared={declared_mime}, detected={real_mime}"
             )
 
-        if real_mime == "image/png":
-            sanitized = _sanitize_png_bytes(raw)
-            if sanitized != raw:
-                compact = base64.b64encode(sanitized).decode()
-                logger.info(
-                    "Imagine workbench PNG sanitized before upload: "
-                    f"raw_len={len(raw)}, sanitized_len={len(sanitized)}"
-                )
-        return f"data:{real_mime};base64,{compact}"
+        # 按需求：非 jpeg 一律转为 jpeg 再上传，规避上游对特定格式/元数据的 400。
+        if real_mime != "image/jpeg":
+            compact = _encode_jpeg_base64(raw)
+            logger.info(
+                "Imagine workbench image normalized to JPEG before upload: "
+                f"source_mime={real_mime}, jpeg_b64_len={len(compact)}"
+            )
+            return f"data:image/jpeg;base64,{compact}"
+
+        return f"data:image/jpeg;base64,{compact}"
     if raw_url:
         if raw_url.startswith("http://") or raw_url.startswith("https://"):
             return raw_url

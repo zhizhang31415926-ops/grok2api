@@ -6,6 +6,7 @@ Upload service for assets.grok.com.
 
 import base64
 import hashlib
+import io
 import mimetypes
 import re
 from pathlib import Path
@@ -41,6 +42,49 @@ class UploadService:
         if self._session:
             await self._session.close()
             self._session = None
+
+    @staticmethod
+    def _normalize_image_to_jpeg(filename: str, b64: str, mime: str) -> Tuple[str, str, str]:
+        """非 JPEG 图片统一转为 JPEG。"""
+        safe_mime = str(mime or "").lower().strip()
+        if not safe_mime.startswith("image/"):
+            return filename, b64, mime
+        if safe_mime in ("image/jpeg", "image/jpg"):
+            return filename, b64, "image/jpeg"
+
+        try:
+            from PIL import Image, ImageOps
+        except Exception as e:
+            raise ValidationException(f"Pillow is required for image conversion: {e}")
+
+        try:
+            raw = base64.b64decode(re.sub(r"\s+", "", b64), validate=True)
+        except Exception:
+            raise ValidationException("Invalid image base64 content")
+
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                img = ImageOps.exif_transpose(img)
+                if img.mode in ("RGBA", "LA"):
+                    bg = Image.new("RGB", img.size, (255, 255, 255))
+                    alpha = img.split()[-1]
+                    bg.paste(img.convert("RGBA"), mask=alpha)
+                    out_img = bg
+                else:
+                    out_img = img.convert("RGB")
+
+                out = io.BytesIO()
+                out_img.save(out, format="JPEG", quality=92, optimize=True)
+                jpeg_b64 = base64.b64encode(out.getvalue()).decode()
+                base_name = (filename or "file").rsplit(".", 1)[0]
+                jpeg_name = f"{base_name}.jpeg"
+                logger.info(
+                    "Upload image normalized to JPEG: "
+                    f"from={safe_mime}, src_name={filename}, dst_name={jpeg_name}"
+                )
+                return jpeg_name, jpeg_b64, "image/jpeg"
+        except Exception as e:
+            raise ValidationException(f"Image conversion to JPEG failed: {e}")
 
     @staticmethod
     def _is_url(value: str) -> bool:
@@ -215,6 +259,7 @@ class UploadService:
         """
         async with _get_upload_semaphore():
             filename, b64, mime = await self.check_format(file_input)
+            filename, b64, mime = self._normalize_image_to_jpeg(filename, b64, mime)
 
             logger.debug(
                 f"Upload prepare: filename={filename}, type={mime}, size={len(b64)}"
