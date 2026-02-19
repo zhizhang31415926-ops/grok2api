@@ -215,8 +215,7 @@ class ImageGenerationService:
         all_images: List[str] = []
         seen = set()
         expected_per_call = 6
-        calls_needed = max(1, int(math.ceil(n / expected_per_call)))
-        calls_needed = min(calls_needed, n)
+        max_collect_rounds = max(3, min(30, n * 3))
 
         async def _fetch_batch(call_target: int):
             upstream = image_service.stream(
@@ -234,24 +233,54 @@ class ImageGenerationService:
             )
             return await processor.process(upstream)
 
-        tasks = []
-        for i in range(calls_needed):
-            remaining = n - (i * expected_per_call)
-            call_target = min(expected_per_call, remaining)
-            tasks.append(_fetch_batch(call_target))
+        for round_idx in range(1, max_collect_rounds + 1):
+            remaining = n - len(all_images)
+            if remaining <= 0:
+                break
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for batch in results:
-            if isinstance(batch, Exception):
-                logger.warning(f"WS batch failed: {batch}")
-                continue
-            for img in batch:
-                if img not in seen:
-                    seen.add(img)
-                    all_images.append(img)
+            calls_needed = max(1, int(math.ceil(remaining / expected_per_call)))
+            calls_needed = min(calls_needed, remaining)
+            tasks = []
+            for i in range(calls_needed):
+                round_remaining = remaining - (i * expected_per_call)
+                call_target = min(expected_per_call, round_remaining)
+                tasks.append(_fetch_batch(call_target))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            added_in_round = 0
+            filtered_png = 0
+
+            for batch in results:
+                if isinstance(batch, Exception):
+                    logger.warning(f"WS batch failed: {batch}")
+                    continue
+                for img in batch:
+                    if self._is_blocked_png_image(img):
+                        filtered_png += 1
+                        continue
+                    if img not in seen:
+                        seen.add(img)
+                        all_images.append(img)
+                        added_in_round += 1
+                    if len(all_images) >= n:
+                        break
                 if len(all_images) >= n:
                     break
+
+            logger.info(
+                "WS collect round: "
+                f"{round_idx}/{max_collect_rounds}, "
+                f"target={n}, collected={len(all_images)}, "
+                f"added={added_in_round}, filtered_png={filtered_png}"
+            )
+
             if len(all_images) >= n:
+                break
+            if added_in_round == 0 and filtered_png > 0 and round_idx >= 3:
+                logger.warning(
+                    "WS collect appears blocked by png-only results, stop early: "
+                    f"target={n}, collected={len(all_images)}"
+                )
                 break
 
         try:
@@ -269,6 +298,19 @@ class ImageGenerationService:
         return ImageGenerationResult(
             stream=False, data=selected, usage_override=usage_override
         )
+
+    @staticmethod
+    def _is_blocked_png_image(image: str) -> bool:
+        value = str(image or "").strip().lower()
+        if not value:
+            return True
+        if value.startswith("data:image/png;base64,"):
+            return True
+        if value.startswith("ivborw0kggo"):
+            return True
+        if ".png" in value:
+            return True
+        return False
 
     @staticmethod
     def _get_effort(model_info: Any) -> EffortType:
