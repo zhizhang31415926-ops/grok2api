@@ -57,6 +57,40 @@ def _token_tag(token: str) -> str:
     return f"{raw[:6]}...{raw[-6:]}"
 
 
+def _classify_video_error(exc: Exception) -> tuple[str, str, int]:
+    """将底层异常归一化为用户可读错误。"""
+    text = str(exc or "").lower()
+    details = getattr(exc, "details", None)
+    body = ""
+    if isinstance(details, dict):
+        body = str(details.get("body") or "").lower()
+    merged = f"{text}\n{body}"
+
+    if (
+        "blocked by moderation" in merged
+        or "content moderated" in merged
+        or "content-moderated" in merged
+        or '"code":3' in merged
+        or "'code': 3" in merged
+    ):
+        return ("视频生成被拒绝，请调整提示词或素材后重试", "video_rejected", 400)
+
+    if (
+        "tls connect error" in merged
+        or "could not establish signal connection" in merged
+        or "timed out" in merged
+        or "timeout" in merged
+        or "connection closed" in merged
+        or "http/2" in merged
+        or "curl: (35)" in merged
+        or "network" in merged
+        or "proxy" in merged
+    ):
+        return ("视频生成失败：网络连接异常，请稍后重试", "video_network_error", 502)
+
+    return ("视频生成失败，请稍后重试", "video_failed", 502)
+
+
 class VideoService:
     """Video generation service."""
 
@@ -210,7 +244,13 @@ class VideoService:
             raise
         except Exception as e:
             logger.error(f"Create post error: {e}")
-            raise UpstreamException(f"Create post error: {str(e)}")
+            msg, code, status = _classify_video_error(e)
+            raise AppException(
+                message=msg,
+                error_type=ErrorType.SERVER.value if status >= 500 else ErrorType.INVALID_REQUEST.value,
+                code=code,
+                status_code=status,
+            )
 
     async def create_image_post(self, token: str, image_url: str) -> str:
         """Create image post and return post ID."""
@@ -292,7 +332,13 @@ class VideoService:
                     logger.error(f"Video generation error: {e}")
                     if isinstance(e, AppException):
                         raise
-                    raise UpstreamException(f"Video generation error: {str(e)}")
+                    msg, code, status = _classify_video_error(e)
+                    raise AppException(
+                        message=msg,
+                        error_type=ErrorType.SERVER.value if status >= 500 else ErrorType.INVALID_REQUEST.value,
+                        code=code,
+                        status_code=status,
+                    )
                 finally:
                     try:
                         await session.close()
@@ -380,7 +426,13 @@ class VideoService:
                     logger.error(f"Video generation error: {e}")
                     if isinstance(e, AppException):
                         raise
-                    raise UpstreamException(f"Video generation error: {str(e)}")
+                    msg, code, status = _classify_video_error(e)
+                    raise AppException(
+                        message=msg,
+                        error_type=ErrorType.SERVER.value if status >= 500 else ErrorType.INVALID_REQUEST.value,
+                        code=code,
+                        status_code=status,
+                    )
                 finally:
                     try:
                         await session.close()
@@ -500,7 +552,13 @@ class VideoService:
                     logger.error(f"Video generation error: {e}")
                     if isinstance(e, AppException):
                         raise
-                    raise UpstreamException(f"Video generation error: {str(e)}")
+                    msg, code, status = _classify_video_error(e)
+                    raise AppException(
+                        message=msg,
+                        error_type=ErrorType.SERVER.value if status >= 500 else ErrorType.INVALID_REQUEST.value,
+                        code=code,
+                        status_code=status,
+                    )
                 finally:
                     try:
                         await session.close()
@@ -680,7 +738,13 @@ class VideoService:
                         f"trying next token (attempt {attempt + 1}/{max_token_retries})"
                     )
                     continue
-                raise
+                msg, code, status = _classify_video_error(e)
+                raise AppException(
+                    message=msg,
+                    error_type=ErrorType.SERVER.value if status >= 500 else ErrorType.INVALID_REQUEST.value,
+                    code=code,
+                    status_code=status,
+                )
 
         if last_error:
             raise last_error
@@ -849,37 +913,43 @@ class VideoStreamProcessor(BaseProcessor):
                 "Video stream cancelled by client", extra={"model": self.model}
             )
         except StreamIdleTimeoutError as e:
-            raise UpstreamException(
-                message=f"Video stream idle timeout after {e.idle_seconds}s",
+            raise AppException(
+                message="视频生成失败：网络连接异常，请稍后重试",
+                error_type=ErrorType.SERVER.value,
+                code="video_network_error",
                 status_code=504,
-                details={
-                    "error": str(e),
-                    "type": "stream_idle_timeout",
-                    "idle_seconds": e.idle_seconds,
-                },
             )
         except RequestsError as e:
             if _is_http2_error(e):
                 logger.warning(
                     f"HTTP/2 stream error in video: {e}", extra={"model": self.model}
                 )
-                raise UpstreamException(
-                    message="Upstream connection closed unexpectedly",
+                raise AppException(
+                    message="视频生成失败：网络连接异常，请稍后重试",
+                    error_type=ErrorType.SERVER.value,
+                    code="video_network_error",
                     status_code=502,
-                    details={"error": str(e), "type": "http2_stream_error"},
                 )
             logger.error(
                 f"Video stream request error: {e}", extra={"model": self.model}
             )
-            raise UpstreamException(
-                message=f"Upstream request failed: {e}",
+            raise AppException(
+                message="视频生成失败：网络连接异常，请稍后重试",
+                error_type=ErrorType.SERVER.value,
+                code="video_network_error",
                 status_code=502,
-                details={"error": str(e)},
             )
         except Exception as e:
             logger.error(
                 f"Video stream processing error: {e}",
                 extra={"model": self.model, "error_type": type(e).__name__},
+            )
+            msg, code, status = _classify_video_error(e)
+            raise AppException(
+                message=msg,
+                error_type=ErrorType.SERVER.value if status >= 500 else ErrorType.INVALID_REQUEST.value,
+                code=code,
+                status_code=status,
             )
         finally:
             await self.close()

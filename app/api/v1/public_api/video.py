@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import verify_public_key
 from app.core.logger import logger
+from app.core.exceptions import AppException
 from app.services.grok.services.video import VideoService
 from app.services.grok.services.model import ModelService
 from app.api.v1.public_api import imagine as imagine_public_api
@@ -59,6 +60,34 @@ _VENDOR_CONTENT_TYPE = {
     "ffmpeg-core.worker.js": "application/javascript; charset=utf-8",
     "ffmpeg-core.wasm": "application/wasm",
 }
+
+
+def _public_video_error_payload(exc: Exception) -> dict:
+    """统一 public video 错误文案，避免透传工具层异常。"""
+    if isinstance(exc, AppException):
+        return {"error": exc.message, "code": exc.code or "video_failed"}
+
+    text = str(exc or "").lower()
+    if (
+        "blocked by moderation" in text
+        or "content moderated" in text
+        or "content-moderated" in text
+        or '"code":3' in text
+        or "'code': 3" in text
+    ):
+        return {"error": "视频生成被拒绝，请调整提示词或素材后重试", "code": "video_rejected"}
+    if (
+        "tls connect error" in text
+        or "timed out" in text
+        or "timeout" in text
+        or "connection closed" in text
+        or "http/2" in text
+        or "curl: (35)" in text
+        or "network" in text
+        or "proxy" in text
+    ):
+        return {"error": "视频生成失败：网络连接异常，请稍后重试", "code": "video_network_error"}
+    return {"error": "视频生成失败，请稍后重试", "code": "video_failed"}
 
 
 def _extract_parent_post_id_from_url(url: str) -> str:
@@ -392,7 +421,7 @@ async def public_video_sse(request: Request, task_id: str = Query("")):
                 yield chunk
         except Exception as e:
             logger.warning(f"Public video SSE error: {e}")
-            payload = {"error": str(e), "code": "internal_error"}
+            payload = _public_video_error_payload(e)
             yield f"data: {orjson.dumps(payload).decode()}\n\n"
             yield "data: [DONE]\n\n"
         finally:
