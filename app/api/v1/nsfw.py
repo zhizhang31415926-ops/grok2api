@@ -8,6 +8,7 @@ import math
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import get_config
@@ -28,6 +29,27 @@ RATIO_TO_SIZE = {
     "2:3": "1024x1792",
     "1:1": "1024x1024",
 }
+
+
+def _tool_error_response(exc: AppException) -> JSONResponse:
+    """返回 200 业务错误，避免工具层只看到 HTTP 状态码。"""
+    logger.warning(
+        "NSFW API business error: "
+        f"type={exc.error_type}, code={exc.code}, param={exc.param}, message={exc.message}"
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": False,
+            "result": exc.message,
+            "error": {
+                "message": exc.message,
+                "type": exc.error_type,
+                "param": exc.param,
+                "code": exc.code,
+            },
+        },
+    )
 
 class NSFWRequest(BaseModel):
     """NSFW 全流程请求"""
@@ -597,9 +619,25 @@ async def generate_nsfw(data: NSFWRequest, request: Request) -> Dict[str, Any]:
                 task.cancel()
                 raise HTTPException(status_code=499, detail="client_closed")
         return await task
+    except AppException as exc:
+        if not task.done():
+            task.cancel()
+        return _tool_error_response(exc)
     except asyncio.CancelledError:
         logger.info("NSFW task cancelled after disconnect")
         raise HTTPException(status_code=499, detail="client_closed")
+    except Exception as exc:
+        if not task.done():
+            task.cancel()
+        logger.exception(f"NSFW unexpected error: {exc}")
+        return _tool_error_response(
+            AppException(
+                message="NSFW processing failed due to internal error",
+                error_type=ErrorType.SERVER.value,
+                code="nsfw_internal_error",
+                status_code=500,
+            )
+        )
     finally:
         if not task.done():
             logger.info("NSFW force-cancel unfinished task")
