@@ -179,6 +179,44 @@ class AssetsUploadReverse:
                             "AssetsUpload transient exception, mark as retryable: "
                             f"{err_msg}"
                         )
+                        # 部分 '"code"' 异常不会走到上面的降级分支，这里再强制兜底一次。
+                        try:
+                            response = await session.post(
+                                UPLOAD_API,
+                                headers=headers,
+                                json=payload,
+                                timeout=timeout,
+                            )
+                            if response.status_code == 200:
+                                logger.info(
+                                    "AssetsUpload recovered by forced direct fallback after transient error"
+                                )
+                                return response
+                        except Exception as forced_direct_err:
+                            logger.warning(
+                                "AssetsUpload forced direct fallback failed, "
+                                f"error={forced_direct_err}"
+                            )
+
+                        try:
+                            response = await AssetsUploadReverse._urllib_post(
+                                url=UPLOAD_API,
+                                headers=headers,
+                                payload=payload,
+                                timeout=timeout,
+                                proxy_url=proxy_url,
+                            )
+                            if response.status_code == 200:
+                                logger.info(
+                                    "AssetsUpload recovered by forced urllib fallback after transient error"
+                                )
+                                return response
+                        except Exception as forced_urllib_err:
+                            logger.warning(
+                                "AssetsUpload forced urllib fallback failed, "
+                                f"error={forced_urllib_err}"
+                            )
+
                         raise UpstreamException(
                             message=f"AssetsUpload transient failure: {err_msg}",
                             details={"status": 403, "error": err_msg},
