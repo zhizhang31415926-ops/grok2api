@@ -74,13 +74,21 @@ class AssetsUploadReverse:
                     impersonate=browser,
                 )
                 if response.status_code != 200:
+                    body_preview = ""
+                    try:
+                        body_preview = (response.text or "").strip().replace("\n", " ")
+                    except Exception:
+                        body_preview = ""
+                    if len(body_preview) > 300:
+                        body_preview = f"{body_preview[:300]}...(len={len(body_preview)})"
                     logger.error(
-                        f"AssetsUploadReverse: Upload failed, {response.status_code}",
+                        "AssetsUploadReverse: Upload failed, "
+                        f"status={response.status_code}, body={body_preview or '-'}",
                         extra={"error_type": "UpstreamException"},
                     )
                     raise UpstreamException(
                         message=f"AssetsUploadReverse: Upload failed, {response.status_code}",
-                        details={"status": response.status_code},
+                        details={"status": response.status_code, "body": body_preview},
                     )
                 return response
 
