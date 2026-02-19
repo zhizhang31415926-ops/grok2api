@@ -3,6 +3,7 @@ import base64
 import binascii
 import contextlib
 import re
+import struct
 import time
 import uuid
 from typing import Optional, List, Dict, Any
@@ -137,13 +138,16 @@ def _extract_parent_post_id_from_payload(payload: Dict[str, Any]) -> str:
     return ""
 
 
-def _detect_image_mime_from_b64(compact_b64: str) -> str:
-    """根据 base64 内容头判断真实图片 MIME。"""
+def _decode_image_b64(compact_b64: str) -> bytes:
+    """解码 base64 图片数据。"""
     try:
-        raw = base64.b64decode(compact_b64, validate=True)
+        return base64.b64decode(compact_b64, validate=True)
     except (binascii.Error, ValueError):
         raise HTTPException(status_code=400, detail="image_base64 format is invalid")
 
+
+def _detect_image_mime(raw: bytes) -> str:
+    """根据字节头判断真实图片 MIME。"""
     if raw.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -154,6 +158,39 @@ def _detect_image_mime_from_b64(compact_b64: str) -> str:
         return "image/gif"
     # 无法识别时维持 png 兼容行为
     return "image/png"
+
+
+def _sanitize_png_bytes(raw: bytes) -> bytes:
+    """移除 PNG 中高风险附加 chunk（如 eXIf/iCCP），降低上游 400 概率。"""
+    signature = b"\x89PNG\r\n\x1a\n"
+    if not raw.startswith(signature):
+        return raw
+
+    # 保留：关键图像 chunk + 常见透明信息
+    keep_types = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS"}
+    pos = len(signature)
+    out = bytearray(signature)
+
+    while pos + 12 <= len(raw):
+        try:
+            chunk_len = struct.unpack(">I", raw[pos:pos + 4])[0]
+        except struct.error:
+            return raw
+        chunk_type = raw[pos + 4:pos + 8]
+        chunk_total = 12 + chunk_len
+        if pos + chunk_total > len(raw):
+            return raw
+        chunk_blob = raw[pos:pos + chunk_total]
+        if chunk_type in keep_types:
+            out.extend(chunk_blob)
+        pos += chunk_total
+        if chunk_type == b"IEND":
+            break
+
+    # 只有在结构完整并且确实有内容时才替换
+    if len(out) > len(signature) and out.endswith(b"IEND\xaeB`\x82"):
+        return bytes(out)
+    return raw
 
 
 def _normalize_image_input(image_base64: str, image_url: str) -> str:
@@ -177,12 +214,22 @@ def _normalize_image_input(image_base64: str, image_url: str) -> str:
         if not re.fullmatch(r"[A-Za-z0-9+/=_-]+", compact):
             raise HTTPException(status_code=400, detail="image_base64 format is invalid")
 
-        real_mime = _detect_image_mime_from_b64(compact)
+        raw = _decode_image_b64(compact)
+        real_mime = _detect_image_mime(raw)
         if declared_mime and declared_mime != real_mime:
             logger.warning(
                 "Imagine workbench image MIME mismatch corrected: "
                 f"declared={declared_mime}, detected={real_mime}"
             )
+
+        if real_mime == "image/png":
+            sanitized = _sanitize_png_bytes(raw)
+            if sanitized != raw:
+                compact = base64.b64encode(sanitized).decode()
+                logger.info(
+                    "Imagine workbench PNG sanitized before upload: "
+                    f"raw_len={len(raw)}, sanitized_len={len(sanitized)}"
+                )
         return f"data:{real_mime};base64,{compact}"
     if raw_url:
         if raw_url.startswith("http://") or raw_url.startswith("https://"):
