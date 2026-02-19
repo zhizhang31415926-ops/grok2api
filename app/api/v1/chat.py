@@ -178,6 +178,34 @@ def _chat_error_as_success_response(model: str, message: str) -> JSONResponse:
         },
     )
 
+
+def _video_error_message(exc: Exception) -> str:
+    """统一视频错误文案，避免工具层只看到底层 HTTP 错误。"""
+    if isinstance(exc, AppException):
+        return exc.message
+    text = str(exc or "").lower()
+    if (
+        "blocked by moderation" in text
+        or "content moderated" in text
+        or "content-moderated" in text
+        or '"code":3' in text
+        or "'code': 3" in text
+    ):
+        return "视频生成被拒绝，请调整提示词或素材后重试"
+    if (
+        "tls connect error" in text
+        or "timed out" in text
+        or "timeout" in text
+        or "connection closed" in text
+        or "http/2" in text
+        or "curl: (35)" in text
+        or "network" in text
+        or "proxy" in text
+    ):
+        return "视频生成失败：网络连接异常，请稍后重试"
+    return "视频生成失败，请稍后重试"
+
+
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
     if n < 1 or n > 10:
@@ -573,13 +601,19 @@ async def chat_completions(request: ChatCompletionRequest):
     """Chat Completions API - 兼容 OpenAI"""
     from app.core.logger import logger
 
+    model_info = ModelService.get(request.model)
+
     # 参数验证
-    validate_request(request)
+    try:
+        validate_request(request)
+    except AppException as exc:
+        if model_info and model_info.is_video:
+            return _chat_error_as_success_response(request.model, exc.message)
+        raise
 
     logger.debug(f"Chat request: model={request.model}, stream={request.stream}")
 
     # 检测模型类型
-    model_info = ModelService.get(request.model)
     if model_info and model_info.is_image_edit:
         prompt, image_urls = _extract_prompt_images(request.messages)
         if not image_urls:
@@ -795,8 +829,8 @@ async def chat_completions(request: ChatCompletionRequest):
                     "total_tokens": usage_total,
                 }
                 result = merged
-        except AppException as e:
-            return _chat_error_as_success_response(request.model, e.message)
+        except Exception as e:
+            return _chat_error_as_success_response(request.model, _video_error_message(e))
     else:
         result = await ChatService.completions(
             model=request.model,
