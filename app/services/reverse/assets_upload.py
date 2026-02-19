@@ -2,6 +2,10 @@
 Reverse interface: upload asset.
 """
 
+import asyncio
+import json
+import urllib.request
+from dataclasses import dataclass
 from typing import Any
 from curl_cffi.requests import AsyncSession
 
@@ -17,6 +21,52 @@ UPLOAD_API = "https://grok.com/rest/app-chat/upload-file"
 
 class AssetsUploadReverse:
     """/rest/app-chat/upload-file reverse interface."""
+
+    @dataclass
+    class _SimpleResponse:
+        status_code: int
+        headers: dict[str, str]
+        text: str
+
+        def json(self):
+            return json.loads(self.text or "{}")
+
+    @staticmethod
+    async def _urllib_post(
+        url: str, headers: dict[str, str], payload: dict[str, Any], timeout: int, proxy_url: str
+    ) -> "AssetsUploadReverse._SimpleResponse":
+        """使用标准库 urllib 兜底上传，绕过 curl_cffi 异常。"""
+        body = json.dumps(payload).encode("utf-8")
+        opener = None
+        if proxy_url:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+            )
+        req = urllib.request.Request(url=url, data=body, headers=headers, method="POST")
+
+        def _do_post():
+            if opener is not None:
+                with opener.open(req, timeout=timeout) as resp:
+                    status = int(getattr(resp, "status", 200) or 200)
+                    raw_headers = {
+                        str(k).lower(): str(v) for k, v in dict(resp.headers.items()).items()
+                    }
+                    text = resp.read().decode("utf-8", errors="replace")
+                    return status, raw_headers, text
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                raw_headers = {
+                    str(k).lower(): str(v) for k, v in dict(resp.headers.items()).items()
+                }
+                text = resp.read().decode("utf-8", errors="replace")
+                return status, raw_headers, text
+
+        status, raw_headers, text = await asyncio.to_thread(_do_post)
+        return AssetsUploadReverse._SimpleResponse(
+            status_code=status,
+            headers=raw_headers,
+            text=text,
+        )
 
     @staticmethod
     async def request(session: AsyncSession, token: str, fileName: str, fileMimeType: str, content: str) -> Any:
@@ -38,8 +88,10 @@ class AssetsUploadReverse:
             assert_proxy = get_config("proxy.asset_proxy_url")
             if assert_proxy:
                 proxies = {"http": assert_proxy, "https": assert_proxy}
+                proxy_url = assert_proxy
             else:
                 proxies = {"http": base_proxy, "https": base_proxy}
+                proxy_url = base_proxy
 
             # Build headers
             headers = build_headers(
@@ -66,14 +118,39 @@ class AssetsUploadReverse:
 
             async def _do_request():
                 try:
-                    response = await session.post(
-                        UPLOAD_API,
-                        headers=headers,
-                        json=payload,
-                        proxies=proxies,
-                        timeout=timeout,
-                        impersonate=browser,
-                    )
+                    try:
+                        response = await session.post(
+                            UPLOAD_API,
+                            headers=headers,
+                            json=payload,
+                            proxies=proxies,
+                            timeout=timeout,
+                            impersonate=browser,
+                        )
+                    except Exception as first_err:
+                        logger.warning(
+                            "AssetsUploadReverse primary request failed, fallback direct: "
+                            f"error={first_err}"
+                        )
+                        try:
+                            response = await session.post(
+                                UPLOAD_API,
+                                headers=headers,
+                                json=payload,
+                                timeout=timeout,
+                            )
+                        except Exception as second_err:
+                            logger.warning(
+                                "AssetsUploadReverse direct curl request failed, "
+                                f"fallback urllib: error={second_err}"
+                            )
+                            response = await AssetsUploadReverse._urllib_post(
+                                url=UPLOAD_API,
+                                headers=headers,
+                                payload=payload,
+                                timeout=timeout,
+                                proxy_url=proxy_url,
+                            )
                     if response.status_code != 200:
                         body_preview = ""
                         try:
