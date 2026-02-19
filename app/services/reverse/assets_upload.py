@@ -203,6 +203,7 @@ class AssetsUploadReverse:
                             "AssetsUpload transient exception, mark as retryable: "
                             f"{err_msg}"
                         )
+                        last_fallback_error: UpstreamException | None = None
                         # 部分 '"code"' 异常不会走到上面的降级分支，这里再强制兜底一次。
                         try:
                             response = await session.post(
@@ -228,6 +229,8 @@ class AssetsUploadReverse:
                                 details={"status": response.status_code, "body": body_preview},
                             )
                         except Exception as forced_direct_err:
+                            if isinstance(forced_direct_err, UpstreamException):
+                                last_fallback_error = forced_direct_err
                             logger.warning(
                                 "AssetsUpload forced direct fallback failed, "
                                 f"error={forced_direct_err}"
@@ -254,11 +257,15 @@ class AssetsUploadReverse:
                                 details={"status": response.status_code, "body": body_preview},
                             )
                         except Exception as forced_urllib_err:
+                            if isinstance(forced_urllib_err, UpstreamException):
+                                last_fallback_error = forced_urllib_err
                             logger.warning(
                                 "AssetsUpload forced urllib fallback failed, "
                                 f"error={forced_urllib_err}"
                             )
 
+                        if last_fallback_error is not None:
+                            raise last_fallback_error
                         raise UpstreamException(
                             message=f"AssetsUpload transient failure: {err_msg}",
                             details={"status": 403, "error": err_msg},

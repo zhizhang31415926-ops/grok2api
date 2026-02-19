@@ -64,6 +64,31 @@ def _is_upload_rejected_error(exc: Exception) -> bool:
     return False
 
 
+def _is_upload_network_error(exc: Exception) -> bool:
+    """判断是否为网络连通/网关挑战类上传失败。"""
+    msg = str(exc or "").lower()
+    if (
+        "tls connect error" in msg
+        or "timed out" in msg
+        or "timeout" in msg
+        or "connection" in msg
+        or "proxy" in msg
+        or "curl: (35)" in msg
+    ):
+        return True
+
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        status = details.get("status")
+        body = str(details.get("body") or "").lower()
+        if status == 403 and ("just a moment" in body or "cloudflare" in body):
+            return True
+        if "tls connect error" in body or "timed out" in body:
+            return True
+
+    return False
+
+
 class ImageEditService:
     """Image edit orchestration service."""
 
@@ -469,6 +494,13 @@ class ImageEditService:
                     error_type=ErrorType.INVALID_REQUEST.value,
                     code="upload_rejected",
                     status_code=400,
+                )
+            if _is_upload_network_error(e):
+                raise AppException(
+                    message="图片上传失败：网络连接异常，请稍后重试",
+                    error_type=ErrorType.SERVER.value,
+                    code="upload_network_error",
+                    status_code=502,
                 )
             raise AppException(
                 message="图片上传失败，请稍后重试",
