@@ -72,6 +72,10 @@ ALLOWED_IMAGE_SIZES = {
     "1024x1792",
     "1024x1024",
 }
+DEFAULT_VIDEO_PROMPT = (
+    "Natural cinematic motion, keep subject consistency, smooth camera movement, "
+    "realistic detail, high quality."
+)
 
 
 def _validate_media_input(value: str, field_name: str, param: str):
@@ -135,6 +139,59 @@ def _extract_prompt_images(messages: List[MessageItem]) -> tuple[str, List[str]]
                     image_urls.append(url.strip())
 
     return last_text, image_urls
+
+
+def _ensure_video_default_prompt(messages: List[MessageItem]) -> None:
+    has_image = False
+    has_text = False
+    first_empty_text_block: Optional[Dict[str, Any]] = None
+    first_empty_str_msg: Optional[MessageItem] = None
+    last_user_list_msg: Optional[MessageItem] = None
+
+    for msg in messages:
+        if (msg.role or "") != "user":
+            continue
+        content = msg.content
+        if isinstance(content, str):
+            if content.strip():
+                has_text = True
+            elif first_empty_str_msg is None:
+                first_empty_str_msg = msg
+            continue
+        if not isinstance(content, list):
+            continue
+        last_user_list_msg = msg
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "image_url":
+                image = block.get("image_url") or {}
+                if isinstance(image.get("url"), str) and image.get("url", "").strip():
+                    has_image = True
+            elif block_type == "text":
+                text = block.get("text", "")
+                if isinstance(text, str) and text.strip():
+                    has_text = True
+                elif first_empty_text_block is None:
+                    first_empty_text_block = block
+
+    if (not has_image) or has_text:
+        return
+
+    if first_empty_text_block is not None:
+        first_empty_text_block["text"] = DEFAULT_VIDEO_PROMPT
+        return
+
+    if first_empty_str_msg is not None:
+        first_empty_str_msg.content = DEFAULT_VIDEO_PROMPT
+        return
+
+    if last_user_list_msg is not None and isinstance(last_user_list_msg.content, list):
+        last_user_list_msg.content.append({"type": "text", "text": DEFAULT_VIDEO_PROMPT})
+        return
+
+    messages.append(MessageItem(role="user", content=DEFAULT_VIDEO_PROMPT))
 
 
 def _resolve_image_format(value: Optional[str]) -> str:
@@ -602,6 +659,8 @@ async def chat_completions(request: ChatCompletionRequest):
     from app.core.logger import logger
 
     model_info = ModelService.get(request.model)
+    if model_info and model_info.is_video:
+        _ensure_video_default_prompt(request.messages)
 
     # 参数验证
     try:
