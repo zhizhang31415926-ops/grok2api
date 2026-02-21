@@ -73,7 +73,7 @@ ALLOWED_IMAGE_SIZES = {
     "1024x1024",
 }
 DEFAULT_VIDEO_PROMPT = (
-    "让它动起来"
+    "Animate this."
 )
 
 
