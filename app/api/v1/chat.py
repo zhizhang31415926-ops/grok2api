@@ -73,8 +73,7 @@ ALLOWED_IMAGE_SIZES = {
     "1024x1024",
 }
 DEFAULT_VIDEO_PROMPT = (
-    "Natural cinematic motion, keep subject consistency, smooth camera movement, "
-    "realistic detail, high quality."
+    "让它动起来"
 )
 
 
