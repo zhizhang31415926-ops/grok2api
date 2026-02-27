@@ -3,6 +3,7 @@ Reverse interface: app chat conversations.
 """
 
 import orjson
+import inspect
 from typing import Any, Dict, List, Optional
 from curl_cffi.requests import AsyncSession
 
@@ -191,8 +192,24 @@ class AppChatReverse:
 
             # Stream response
             async def stream_response():
-                async for line in response.aiter_lines():
-                    yield line
+                try:
+                    async for line in response.aiter_lines():
+                        yield line
+                finally:
+                    try:
+                        close_fn = getattr(response, "aclose", None)
+                        if callable(close_fn):
+                            result = close_fn()
+                            if inspect.isawaitable(result):
+                                await result
+                        else:
+                            close_fn = getattr(response, "close", None)
+                            if callable(close_fn):
+                                result = close_fn()
+                                if inspect.isawaitable(result):
+                                    await result
+                    except Exception:
+                        pass
 
             return stream_response()
 

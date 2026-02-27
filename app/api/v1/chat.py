@@ -8,7 +8,7 @@ import base64
 import binascii
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ from app.services.grok.services.video import VideoService
 from app.services.token import get_token_manager
 from app.core.config import get_config
 from app.core.exceptions import ValidationException, AppException, ErrorType
+from app.core.logger import logger
 
 
 class MessageItem(BaseModel):
@@ -652,11 +653,45 @@ def validate_request(request: ChatCompletionRequest):
 router = APIRouter(tags=["Chat"])
 
 
-@router.post("/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
-    """Chat Completions API - 兼容 OpenAI"""
-    from app.core.logger import logger
+async def _close_async_stream(stream_obj: Any):
+    """Try to close async stream to release upstream resources."""
+    if not stream_obj:
+        return
+    aclose = getattr(stream_obj, "aclose", None)
+    if callable(aclose):
+        try:
+            await aclose()
+        except Exception:
+            pass
 
+
+async def _stream_with_disconnect_guard(stream_obj: Any, req: Request, model: str):
+    """Stop upstream stream early when client disconnects."""
+    try:
+        async for chunk in stream_obj:
+            if req is not None and await req.is_disconnected():
+                logger.info(f"Client disconnected, stop streaming: model={model}")
+                break
+            yield chunk
+    except asyncio.CancelledError:
+        logger.info(f"Streaming cancelled by client: model={model}")
+        raise
+    finally:
+        await _close_async_stream(stream_obj)
+
+
+def _build_streaming_response(stream_obj: Any, req: Request, model: str) -> StreamingResponse:
+    guarded_stream = _stream_with_disconnect_guard(stream_obj, req, model)
+    return StreamingResponse(
+        guarded_stream,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@router.post("/chat/completions")
+async def chat_completions(request: ChatCompletionRequest, raw_request: Request):
+    """Chat Completions API - 兼容 OpenAI"""
     model_info = ModelService.get(request.model)
     if model_info and model_info.is_video:
         _ensure_video_default_prompt(request.messages)
@@ -721,11 +756,7 @@ async def chat_completions(request: ChatCompletionRequest):
         )
 
         if result.stream:
-            return StreamingResponse(
-                result.data,
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-            )
+            return _build_streaming_response(result.data, raw_request, request.model)
 
         data = [{response_field: img} for img in result.data]
         return JSONResponse(
@@ -792,11 +823,7 @@ async def chat_completions(request: ChatCompletionRequest):
         )
 
         if result.stream:
-            return StreamingResponse(
-                result.data,
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-            )
+            return _build_streaming_response(result.data, raw_request, request.model)
 
         data = [{response_field: img} for img in result.data]
         usage = result.usage_override or {
@@ -902,11 +929,7 @@ async def chat_completions(request: ChatCompletionRequest):
     if isinstance(result, dict):
         return JSONResponse(content=result)
     else:
-        return StreamingResponse(
-            result,
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-        )
+        return _build_streaming_response(result, raw_request, request.model)
 
 
 __all__ = ["router"]
