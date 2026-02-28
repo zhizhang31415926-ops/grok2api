@@ -234,6 +234,31 @@ def _normalize_image_input(image_base64: str, image_url: str) -> str:
     )
 
 
+def _normalize_image_references(image_references: Optional[List[str]]) -> List[str]:
+    refs = image_references or []
+    if not isinstance(refs, list):
+        raise HTTPException(status_code=400, detail="image_references must be a list")
+
+    cleaned: List[str] = []
+    for raw in refs:
+        item = str(raw or "").strip()
+        if not item:
+            continue
+        cleaned.append(item)
+
+    if len(cleaned) > 3:
+        raise HTTPException(status_code=400, detail="image_references supports at most 3 images")
+
+    normalized: List[str] = []
+    for item in cleaned:
+        if item.startswith("data:"):
+            normalized.append(_normalize_image_input(image_base64=item, image_url=""))
+        else:
+            normalized.append(_normalize_image_input(image_base64="", image_url=item))
+
+    return normalized
+
+
 async def _clean_sessions(now: float) -> None:
     expired = [
         key
@@ -992,6 +1017,7 @@ class ImagineWorkbenchEditRequest(BaseModel):
     source_image_url: Optional[str] = None
     image_base64: Optional[str] = None
     image_url: Optional[str] = None
+    image_references: Optional[List[str]] = None
     stream: Optional[bool] = False
 
 
@@ -1062,16 +1088,19 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
             )
             mode = "parent_post"
         else:
-            image_input = _normalize_image_input(
-                image_base64=str(data.image_base64 or ""),
-                image_url=str(data.image_url or ""),
-            )
+            image_inputs = _normalize_image_references(data.image_references)
+            if not image_inputs:
+                image_input = _normalize_image_input(
+                    image_base64=str(data.image_base64 or ""),
+                    image_url=str(data.image_url or ""),
+                )
+                image_inputs = [image_input]
             result = await edit_service.edit(
                 token_mgr=token_mgr,
                 token=token,
                 model_info=model_info,
                 prompt=prompt,
-                images=[image_input],
+                images=image_inputs,
                 n=1,
                 response_format="url",
                 stream=False,

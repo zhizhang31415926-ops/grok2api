@@ -89,6 +89,18 @@ def _is_upload_network_error(exc: Exception) -> bool:
     return False
 
 
+def _normalize_fallback_image_url(url: str) -> str:
+    """下载失败时的兜底 URL 规范化。"""
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if raw.startswith("/"):
+        return f"https://assets.grok.com{raw}"
+    return f"https://assets.grok.com/{raw}"
+
+
 class ImageEditService:
     """Image edit orchestration service."""
 
@@ -652,7 +664,14 @@ class ImageStreamProcessor(BaseProcessor):
                     if urls := _collect_images(mr):
                         for url in urls:
                             if self.response_format == "url":
-                                processed = await self.process_url(url, "image")
+                                try:
+                                    processed = await self.process_url(url, "image")
+                                except Exception as e:
+                                    logger.warning(
+                                        "Image stream URL resolve failed, fallback to raw URL: "
+                                        f"error={e}"
+                                    )
+                                    processed = _normalize_fallback_image_url(url)
                                 if processed:
                                     final_images.append(processed)
                                 continue
@@ -797,7 +816,14 @@ class ImageCollectProcessor(BaseProcessor):
                     if urls := _collect_images(mr):
                         for url in urls:
                             if self.response_format == "url":
-                                processed = await self.process_url(url, "image")
+                                try:
+                                    processed = await self.process_url(url, "image")
+                                except Exception as e:
+                                    logger.warning(
+                                        "Image collect URL resolve failed, fallback to raw URL: "
+                                        f"error={e}"
+                                    )
+                                    processed = _normalize_fallback_image_url(url)
                                 if processed:
                                     images.append(processed)
                                     progress = min(90, 64 + len(images) * 12)
