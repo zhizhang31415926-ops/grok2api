@@ -199,6 +199,7 @@
 
   function applyParentPostFromText(text, options = {}) {
     const silent = Boolean(options.silent);
+    const addToReferences = Boolean(options.addToReferences);
     const hit = resolveParentMemoryByText(text);
     if (!hit || !hit.parentPostId) {
       if (!silent) {
@@ -225,8 +226,43 @@
       imageUrl: previewUrl,
       origin: 'workbench_paste_apply',
     });
+    if (addToReferences) {
+      const refUrl = String(sourceImageUrl || previewUrl || '').trim();
+      if (!refUrl) {
+        if (!silent) {
+          toast('该 parentPostId 未解析到可用参考图', 'warning');
+        }
+      } else if (state.referenceImages.length >= REFERENCE_LIMIT) {
+        if (!silent) {
+          toast(`最多支持 ${REFERENCE_LIMIT} 张参考图`, 'warning');
+        }
+      } else {
+        const exists = state.referenceImages.some((item) => (
+          (item.parentPostId && item.parentPostId === parentPostId)
+          || String(item.data || '').trim() === refUrl
+        ));
+        if (!exists) {
+          state.referenceImages.push({
+            id: buildRefId(),
+            name: `parent:${shortId(parentPostId)}`,
+            mime: '',
+            data: refUrl,
+            source: 'parent_post',
+            parentPostId,
+            sourceImageUrl: sourceImageUrl || refUrl,
+            isPrimary: false,
+            createdAt: Date.now(),
+          });
+          if (!state.referenceImages.some((item) => item.isPrimary)) {
+            state.referenceImages[0].isPrimary = true;
+          }
+          normalizeReferenceOrder();
+          renderReferenceStrip();
+        }
+      }
+    }
     if (!silent) {
-      toast('已载入 parentPostId，可直接继续编辑', 'success');
+      toast(addToReferences ? '已载入 parentPostId，并加入参考图' : '已载入 parentPostId，可直接继续编辑', 'success');
     }
     return true;
   }
@@ -324,20 +360,12 @@
 
   function getPrimaryReference() {
     if (!state.referenceImages.length) return null;
-    return state.referenceImages.find((item) => item.isPrimary) || state.referenceImages[0];
+    return state.referenceImages[0];
   }
 
   function normalizeReferenceOrder() {
     if (!state.referenceImages.length) return;
-    const primary = getPrimaryReference();
-    const primaryId = primary ? primary.id : '';
-    state.referenceImages = state.referenceImages.map((item) => ({
-      ...item,
-      isPrimary: item.id === primaryId,
-    }));
     state.referenceImages.sort((a, b) => {
-      if (a.isPrimary && !b.isPrimary) return -1;
-      if (!a.isPrimary && b.isPrimary) return 1;
       return a.createdAt - b.createdAt;
     });
   }
@@ -361,8 +389,8 @@
 
     state.referenceImages.forEach((item) => {
       const card = document.createElement('div');
-      card.className = `reference-item${item.isPrimary ? ' is-primary' : ''}`;
-      card.title = item.isPrimary ? `主图：${item.name}` : `设为主图：${item.name}`;
+      card.className = 'reference-item';
+      card.title = `预览：${item.name}`;
       card.dataset.id = item.id;
       card.setAttribute('role', 'button');
       card.setAttribute('tabindex', '0');
@@ -373,13 +401,6 @@
       img.alt = item.name || 'reference';
       img.loading = 'lazy';
       card.appendChild(img);
-
-      if (item.isPrimary) {
-        const badge = document.createElement('div');
-        badge.className = 'reference-primary-badge';
-        badge.textContent = '主图';
-        card.appendChild(badge);
-      }
 
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -395,12 +416,12 @@
       card.appendChild(removeBtn);
 
       card.addEventListener('click', () => {
-        setPrimaryReference(item.id);
+        previewReference(item.id);
       });
       card.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          setPrimaryReference(item.id);
+          previewReference(item.id);
         }
       });
       referenceStrip.appendChild(card);
@@ -418,26 +439,44 @@
     updateReferenceSummary();
   }
 
-  function setPrimaryReference(id) {
+  function previewReference(id) {
     if (!id) return;
-    let changed = false;
-    let primaryData = '';
-    state.referenceImages = state.referenceImages.map((item) => {
-      const isPrimary = item.id === id;
-      if (isPrimary) {
-        primaryData = String(item.data || '');
+    const hit = state.referenceImages.find((item) => item.id === id);
+    const previewData = String(hit && hit.data ? hit.data : '').trim();
+    if (!previewData) return;
+
+    // 仅存在这张 parentPostId 参考图时，点击即恢复到 parentPostId 编辑模式
+    if (
+      hit
+      && hit.source === 'parent_post'
+      && String(hit.parentPostId || '').trim()
+      && state.referenceImages.length === 1
+    ) {
+      state.currentParentPostId = String(hit.parentPostId || '').trim();
+      state.currentSourceImageUrl = String(hit.sourceImageUrl || previewData).trim();
+      state.currentModeValue = 'parent_post';
+      if (parentPostInput) {
+        parentPostInput.value = state.currentParentPostId;
       }
-      const next = { ...item, isPrimary };
-      if (next.isPrimary !== item.isPrimary) changed = true;
-      return next;
-    });
-    if (!changed) return;
-    normalizeReferenceOrder();
-    renderReferenceStrip();
-    if (!state.currentParentPostId && primaryData) {
-      setPreview(primaryData);
-      setStatus('', '已切换主图');
+      updateMeta();
+      rememberParentPost({
+        parentPostId: state.currentParentPostId,
+        sourceImageUrl: state.currentSourceImageUrl,
+        imageUrl: previewData,
+        origin: 'workbench_reference_restore',
+      });
+      setPreview(previewData);
+      setStatus('done', `已恢复 parentPostId 模式：${shortId(state.currentParentPostId)}`);
+      return;
     }
+
+    setPreview(previewData);
+    setStatus('', '已预览参考图');
+  }
+
+  function setPrimaryReference(id) {
+    // 兼容旧调用，点击行为仅预览，不再改变主图
+    previewReference(id);
   }
 
   function removeReferenceImage(id) {
@@ -509,9 +548,6 @@
         createdAt: Date.now() + added,
       });
       added += 1;
-    }
-    if (added > 0 && !state.referenceImages.some((item) => item.isPrimary)) {
-      state.referenceImages[0].isPrimary = true;
     }
     normalizeReferenceOrder();
     renderReferenceStrip();
@@ -1021,7 +1057,7 @@
 
     if (applyParentBtn) {
       applyParentBtn.addEventListener('click', () => {
-        applyParentPostFromText(parentPostInput ? parentPostInput.value : '');
+        applyParentPostFromText(parentPostInput ? parentPostInput.value : '', { addToReferences: true });
       });
     }
 
@@ -1029,7 +1065,7 @@
       parentPostInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          applyParentPostFromText(parentPostInput.value);
+          applyParentPostFromText(parentPostInput.value, { addToReferences: true });
         }
       });
       parentPostInput.addEventListener('input', () => {

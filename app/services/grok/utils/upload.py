@@ -249,7 +249,12 @@ class UploadService:
             lock_timeout = max(1, int(get_config("asset.upload_timeout")))
             async with _file_lock(lock_name, timeout=lock_timeout):
                 session = await self.create()
-                response = await session.get(url, timeout=timeout, proxies=proxies)
+                response = await session.get(
+                    url,
+                    timeout=timeout,
+                    proxies=proxies,
+                    stream=True,
+                )
                 if response.status_code >= 400:
                     raise UpstreamException(
                         message=f"Failed to fetch: {response.status_code}",
@@ -263,7 +268,11 @@ class UploadService:
                 if not content_type:
                     content_type = self._infer_mime(filename)
                 if hasattr(response, "aiter_content"):
-                    b64 = await self._encode_b64_stream(response.aiter_content())
+                    try:
+                        b64 = await self._encode_b64_stream(response.aiter_content())
+                    except Exception:
+                        # 某些响应对象虽存在 aiter_content，但底层未进入 stream 模式；回退读取 content。
+                        b64 = base64.b64encode(response.content).decode()
                 else:
                     b64 = base64.b64encode(response.content).decode()
 
