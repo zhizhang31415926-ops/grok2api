@@ -135,6 +135,7 @@ class ImageEditService:
         n: int,
         response_format: str,
         stream: bool,
+        return_all_images: bool = False,
         progress_cb: Callable[[str, dict], Any] | None = None,
     ) -> ImageEditResult:
         max_token_retries = int(get_config("retry.max_retry"))
@@ -251,6 +252,7 @@ class ImageEditService:
                     response_format=response_format,
                     tool_overrides=tool_overrides,
                     model_config_override=model_config_override,
+                    return_all_images=return_all_images,
                     progress_cb=progress_cb,
                 )
                 await self._emit_progress(
@@ -310,6 +312,7 @@ class ImageEditService:
         source_image_url: str,
         response_format: str,
         stream: bool,
+        return_all_images: bool = False,
         progress_cb: Callable[[str, dict], Any] | None = None,
     ) -> ImageEditResult:
         """基于 parentPostId 进行编辑，不上传图片。"""
@@ -437,6 +440,7 @@ class ImageEditService:
                     response_format=response_format,
                     tool_overrides=tool_overrides,
                     model_config_override=model_config_override,
+                    return_all_images=return_all_images,
                     progress_cb=progress_cb,
                 )
                 await self._emit_progress(
@@ -567,6 +571,7 @@ class ImageEditService:
         response_format: str,
         tool_overrides: dict,
         model_config_override: dict,
+        return_all_images: bool = False,
         progress_cb: Callable[[str, dict], Any] | None = None,
     ) -> List[str]:
         async def _call_edit():
@@ -594,6 +599,8 @@ class ImageEditService:
             raise UpstreamException(
                 "Image edit returned no results", details={"error": "empty_result"}
             )
+        if return_all_images:
+            return all_images
         return [all_images[0]]
 
 

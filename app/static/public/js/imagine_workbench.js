@@ -6,7 +6,7 @@
   const parentPostInput = document.getElementById('parentPostInput');
   const applyParentBtn = document.getElementById('applyParentBtn');
   const previewShell = document.getElementById('previewShell');
-  const currentImage = document.getElementById('currentImage');
+  const currentGallery = document.getElementById('currentGallery');
   const previewEmpty = document.getElementById('previewEmpty');
   const currentParentId = document.getElementById('currentParentId');
   const currentMode = document.getElementById('currentMode');
@@ -27,6 +27,7 @@
     editing: false,
     referenceImages: [],
     currentImageUrl: '',
+    currentImageUrls: [],
     currentParentPostId: '',
     currentSourceImageUrl: '',
     currentModeValue: 'upload',
@@ -587,19 +588,45 @@
     updateReferenceSummary();
   }
 
-  function setPreview(url) {
-    const displayUrl = String(url || '').trim();
-    state.currentImageUrl = displayUrl;
-    if (!currentImage || !previewEmpty) return;
-    if (!displayUrl) {
-      currentImage.src = '';
-      currentImage.classList.add('hidden');
+  function setPreviewImages(urls) {
+    const list = (Array.isArray(urls) ? urls : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    state.currentImageUrls = list;
+    state.currentImageUrl = list[0] || '';
+
+    if (!currentGallery || !previewEmpty) return;
+    currentGallery.innerHTML = '';
+    const primaryUrl = list[0] || '';
+    if (!primaryUrl) {
+      currentGallery.dataset.count = '0';
+      currentGallery.classList.add('hidden');
       previewEmpty.classList.remove('hidden');
       return;
     }
-    currentImage.src = displayUrl;
-    currentImage.classList.remove('hidden');
+
+    currentGallery.dataset.count = '1';
+    const item = document.createElement('div');
+    item.className = 'current-gallery-item';
+    const img = document.createElement('img');
+    img.src = primaryUrl;
+    img.alt = 'result-current';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    item.appendChild(img);
+    currentGallery.appendChild(item);
+
+    currentGallery.classList.remove('hidden');
     previewEmpty.classList.add('hidden');
+  }
+
+  function setPreview(url) {
+    const displayUrl = String(url || '').trim();
+    if (!displayUrl) {
+      setPreviewImages([]);
+      return;
+    }
+    setPreviewImages([displayUrl]);
   }
 
   function setEditing(loading) {
@@ -677,7 +704,10 @@
 
       const line1 = document.createElement('div');
       line1.className = 'history-line';
-      line1.innerHTML = `<strong>#${entry.round}</strong> 路 ${formatTime(entry.createdAt)} 路 ${entry.elapsedMs}ms`;
+      const roundLabel = entry.roundTotal && entry.roundTotal > 1
+        ? `#${entry.round}-${entry.roundIndex || 1}`
+        : `#${entry.round}`;
+      line1.innerHTML = `<strong>${roundLabel}</strong> 路 ${formatTime(entry.createdAt)} 路 ${entry.elapsedMs}ms`;
 
       const line2 = document.createElement('div');
       line2.className = 'history-line';
@@ -952,7 +982,12 @@
           setStatus('running', message);
         }
       }, workbenchEditAbortController ? workbenchEditAbortController.signal : undefined);
-      const imageUrl = String(payload?.data?.[0]?.url || '').trim();
+      const imageUrls = Array.isArray(payload?.data)
+        ? payload.data
+          .map((item) => String((item && item.url) || '').trim())
+          .filter(Boolean)
+        : [];
+      const imageUrl = imageUrls[0] || '';
       if (!imageUrl) {
         throw new Error('返回结果缺少图片 URL');
       }
@@ -985,32 +1020,41 @@
       if (parentPostInput) {
         parentPostInput.value = state.currentParentPostId || '';
       }
-      setPreview(imageUrl);
+      setPreviewImages(imageUrls);
       updateMeta();
 
       state.editRound += 1;
-      const entry = {
-        id: `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
-        round: state.editRound,
-        prompt,
-        mode: state.currentModeValue,
-        imageUrl,
-        parentPostId: resolvedParentPostId,
-        sourceImageUrl,
-        elapsedMs: Number.isFinite(elapsedMs) ? Math.max(0, Math.round(elapsedMs)) : 0,
-        createdAt: Date.now(),
-      };
-      state.history.unshift(entry);
+      const createdAt = Date.now();
+      const historyEntries = imageUrls.map((url, index) => {
+        const perParentPostId = String(extractParentPostId(url) || resolvedParentPostId || '').trim();
+        return {
+          id: `${createdAt}_${index}_${Math.random().toString(16).slice(2, 8)}`,
+          round: state.editRound,
+          roundIndex: index + 1,
+          roundTotal: imageUrls.length,
+          prompt,
+          mode: state.currentModeValue,
+          imageUrl: url,
+          imageUrls,
+          parentPostId: perParentPostId,
+          sourceImageUrl: String(url || sourceImageUrl || '').trim(),
+          elapsedMs: Number.isFinite(elapsedMs) ? Math.max(0, Math.round(elapsedMs)) : 0,
+          createdAt,
+        };
+      });
+      state.history = [...historyEntries, ...state.history];
       renderHistory();
-      rememberParentPost({
-        parentPostId: resolvedParentPostId,
-        sourceImageUrl,
-        imageUrl,
-        origin: 'workbench_edit',
+      historyEntries.forEach((entry) => {
+        rememberParentPost({
+          parentPostId: entry.parentPostId || resolvedParentPostId,
+          sourceImageUrl: entry.sourceImageUrl || sourceImageUrl,
+          imageUrl: entry.imageUrl || imageUrl,
+          origin: 'workbench_edit',
+        });
       });
 
       finishEditProgress(true, '编辑完成 100%');
-      setStatus('done', `编辑完成 · round #${entry.round}`);
+      setStatus('done', `编辑完成 · round #${state.editRound}（${imageUrls.length} 张）`);
       toast('编辑成功，已更新当前画面', 'success');
     } catch (e) {
       if (e && e.name === 'AbortError') {

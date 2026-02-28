@@ -1084,6 +1084,7 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
                 source_image_url=source_image_url,
                 response_format="url",
                 stream=False,
+                return_all_images=True,
                 progress_cb=progress_cb,
             )
             mode = "parent_post"
@@ -1104,6 +1105,7 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
                 n=1,
                 response_format="url",
                 stream=False,
+                return_all_images=True,
                 progress_cb=progress_cb,
             )
             mode = "upload"
@@ -1112,7 +1114,11 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
         if not images:
             raise HTTPException(status_code=502, detail="Image edit returned no results")
 
-        image_url = str(images[0])
+        normalized_images = [str(item or "").strip() for item in images if str(item or "").strip()]
+        if not normalized_images:
+            raise HTTPException(status_code=502, detail="Image edit returned no results")
+
+        image_url = normalized_images[0]
         generated_parent_post_id = _extract_parent_post_id_from_url(image_url)
         current_parent_post_id = generated_parent_post_id or parent_post_id
         if current_parent_post_id:
@@ -1126,7 +1132,7 @@ async def public_imagine_workbench_edit(data: ImagineWorkbenchEditRequest, reque
 
         return {
             "created": int(time.time()),
-            "data": [{"url": image_url}],
+            "data": [{"url": url} for url in normalized_images],
             "mode": mode,
             "input_parent_post_id": parent_post_id if use_parent_mode else "",
             "generated_parent_post_id": generated_parent_post_id,
