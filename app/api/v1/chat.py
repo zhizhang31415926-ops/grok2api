@@ -62,6 +62,9 @@ class ChatCompletionRequest(BaseModel):
     video_config: Optional[VideoConfig] = Field(None, description="视频生成参数")
     # 图片生成配置
     image_config: Optional[ImageConfig] = Field(None, description="图片生成参数")
+    # 兼容 Vercel AI SDK 等 provider-specific 扩展参数
+    provider_options: Optional[Dict[str, Any]] = Field(None, description="Provider-specific options")
+    providerOptions: Optional[Dict[str, Any]] = Field(None, description="Provider-specific options (camelCase)")
 
 
 VALID_ROLES = {"developer", "system", "user", "assistant"}
@@ -76,6 +79,35 @@ ALLOWED_IMAGE_SIZES = {
 DEFAULT_VIDEO_PROMPT = (
     "Animate this."
 )
+
+_ALLOWED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+
+
+def _resolve_reasoning_effort_from_provider_options(
+    provider_options: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    if not isinstance(provider_options, dict):
+        return None
+
+    # 优先读取通用层字段
+    for key in ("reasoning_effort", "reasoningEffort"):
+        value = provider_options.get(key)
+        if isinstance(value, str):
+            effort = value.strip().lower()
+            if effort in _ALLOWED_REASONING_EFFORTS:
+                return effort
+
+    # 再读取各 provider 命名空间（如 xai/openai/anthropic）
+    for _, conf in provider_options.items():
+        if not isinstance(conf, dict):
+            continue
+        for key in ("reasoning_effort", "reasoningEffort"):
+            value = conf.get(key)
+            if isinstance(value, str):
+                effort = value.strip().lower()
+                if effort in _ALLOWED_REASONING_EFFORTS:
+                    return effort
+    return None
 
 
 def _validate_media_input(value: str, field_name: str, param: str):
@@ -692,6 +724,15 @@ def _build_streaming_response(stream_obj: Any, req: Request, model: str) -> Stre
 @router.post("/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, raw_request: Request):
     """Chat Completions API - 兼容 OpenAI"""
+    # OpenAI 兼容：未显式传 stream 时默认非流式（false）
+    if request.stream is None:
+        request.stream = False
+
+    # 兼容 provider-specific options 中的推理强度配置
+    if request.reasoning_effort is None:
+        provider_opts = request.provider_options or request.providerOptions
+        request.reasoning_effort = _resolve_reasoning_effort_from_provider_options(provider_opts)
+
     model_info = ModelService.get(request.model)
     if model_info and model_info.is_video:
         _ensure_video_default_prompt(request.messages)
