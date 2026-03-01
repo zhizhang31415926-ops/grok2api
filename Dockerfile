@@ -27,8 +27,8 @@ COPY app ./app
 COPY main.py ./
 COPY scripts ./scripts
 
-RUN mkdir -p /app/data /app/data/tmp /app/logs \
-    && chmod +x /app/scripts/entrypoint.sh
+RUN mkdir -p /app/data /app/data/tmp /app/logs \  
+    && chmod -R +x /app/scripts/ 
 
 EXPOSE 8000
 
